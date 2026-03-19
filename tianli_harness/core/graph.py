@@ -25,7 +25,7 @@ class HarnessGraphBuilder:
 
     async def node_fetch_dna(self, state: TianLiState) -> dict:
         """Fetch DNA (Hero prompt) from GitHub and add as system message."""
-        config = state["config"]
+        config = state.config
         fetcher = DNAFetcher()
         prompt = await fetcher.fetch(
             config.hero_id,
@@ -52,9 +52,9 @@ class HarnessGraphBuilder:
 
     async def node_interceptor_audit(self, state: TianLiState) -> dict:
         """Intercept tool call before execution - TianJie audit."""
-        config = state["config"]
-        messages = state["messages"]
-        traces = state["traces"]
+        config = state.config
+        messages = state.messages
+        traces = state.traces
 
         # Get the latest tool call from the last assistant message
         latest_tool_call = self._extract_latest_tool_call(messages[-1])
@@ -99,8 +99,8 @@ class HarnessGraphBuilder:
 
     async def node_execute_claw(self, state: TianLiState) -> dict:
         """Execute approved tool call via OpenClaw in-process."""
-        messages = state["messages"]
-        traces = state["traces"]
+        messages = state.messages
+        traces = state.traces
         step_num = len(traces) + 1
 
         # Extract latest tool call
@@ -168,7 +168,7 @@ class HarnessGraphBuilder:
 
 def route_after_reason(state: TianLiState) -> Literal["to_audit", "to_end"]:
     """Route after reasoning - check if tool call needed."""
-    messages = state["messages"]
+    messages = state.messages
     if not messages:
         return "to_end"
         
@@ -194,7 +194,7 @@ def route_after_reason(state: TianLiState) -> Literal["to_audit", "to_end"]:
 
 def route_after_audit(state: TianLiState) -> Literal["execute", "trigger_early_exit"]:
     """Route after audit - continue or trigger early exit."""
-    if state["current_status"] == "early_exit":
+    if state.current_status == "early_exit":
         return "trigger_early_exit"
     return "execute"
 
