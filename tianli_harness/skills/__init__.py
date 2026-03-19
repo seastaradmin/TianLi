@@ -1,0 +1,1 @@
+# Skills module - OpenClaw integration
