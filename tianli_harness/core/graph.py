@@ -2,7 +2,7 @@
 
 from typing import Literal, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 from tianli_harness.core.state import TianLiState, HarnessConfig, ActionTrace
 from tianli_harness.core.interceptor import TianJieInterceptor
 from tianli_harness.dna.fetcher import DNAFetcher
@@ -239,7 +239,7 @@ def build_harness_graph(
     workflow.add_edge("claw_exec", "reason")
 
     # Enable checkpointing
-    memory = SqliteSaver.from_conn_string(":memory:")
+    memory = MemorySaver()
     app = workflow.compile(checkpointer=memory)
 
     return app
