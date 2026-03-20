@@ -1,5 +1,7 @@
 """LangGraph nodes and workflow compilation for TianLi Harness."""
 
+import logging
+
 from typing import Literal, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -7,6 +9,8 @@ from tianli_harness.core.state import TianLiState, HarnessConfig, ActionTrace
 from tianli_harness.core.interceptor import TianJieInterceptor
 from tianli_harness.dna.fetcher import DNAFetcher
 from tianli_harness.skills.claw_proxy import OpenClawSkillManager
+
+logger = logging.getLogger(__name__)
 
 
 class HarnessGraphBuilder:
