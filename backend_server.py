@@ -57,12 +57,61 @@ class ServerState:
         self.logs = []
         self.sse_clients: Set = set()
         self.ws_clients: Set = set()
+        # 节点状态
+        self.current_node = None  # 当前执行的节点
+        self.node_status = {  # 节点状态
+            "fetch_dna": {"name": "Fetch DNA", "status": "idle", "last_run": None},
+            "agent_reason": {"name": "Agent Reason", "status": "idle", "last_run": None},
+            "tianjie_l1": {"name": "TianJie L1", "status": "idle", "last_run": None},
+            "tianjie_l2": {"name": "TianJie L2", "status": "idle", "last_run": None},
+            "execute": {"name": "Execute", "status": "idle", "last_run": None}
+        }
     
     def add_log(self, log: dict):
         self.logs.append(log)
         # 保持最近 1000 条
         if len(self.logs) > 1000:
             self.logs = self.logs[-1000:]
+        
+        # 更新节点状态
+        self._update_node_status(log)
+    
+    def _update_node_status(self, log: dict):
+        """根据日志更新节点状态"""
+        module = log.get("module", "")
+        msg = log.get("msg", "")
+        time = log.get("time", "")
+        
+        # 检测当前节点
+        if "FETCH_DNA" in module:
+            self.current_node = "fetch_dna"
+            self.node_status["fetch_dna"]["status"] = "running"
+            self.node_status["fetch_dna"]["last_run"] = time
+        elif "AGENT_REASON" in module:
+            self.current_node = "agent_reason"
+            self.node_status["agent_reason"]["status"] = "running"
+            self.node_status["agent_reason"]["last_run"] = time
+        elif "TIANJIE-L1" in module:
+            self.current_node = "tianjie_l1"
+            if "🚫" in msg:
+                self.node_status["tianjie_l1"]["status"] = "failed"
+            else:
+                self.node_status["tianjie_l1"]["status"] = "completed"
+            self.node_status["tianjie_l1"]["last_run"] = time
+        elif "TIANJIE-L2" in module:
+            self.current_node = "tianjie_l2"
+            self.node_status["tianjie_l2"]["status"] = "completed"
+            self.node_status["tianjie_l2"]["last_run"] = time
+        elif "EXECUTE" in module:
+            self.current_node = "execute"
+            self.node_status["execute"]["status"] = "completed"
+            self.node_status["execute"]["last_run"] = time
+        
+        # 重置已完成的节点
+        if self.current_node and self.current_node != "fetch_dna":
+            self.node_status["fetch_dna"]["status"] = "completed"
+        if self.current_node and self.current_node not in ["fetch_dna", "agent_reason"]:
+            self.node_status["agent_reason"]["status"] = "completed"
     
     def to_dict(self) -> dict:
         return {
@@ -70,7 +119,9 @@ class ServerState:
             "totalSteps": self.total_steps,
             "earlyExits": self.early_exits,
             "l1Passes": self.l1_passes,
-            "l2Checks": self.l2_checks
+            "l2Checks": self.l2_checks,
+            "currentNode": self.current_node,
+            "nodeStatus": self.node_status
         }
 
 state = ServerState()
@@ -90,9 +141,9 @@ if HAS_FASTAPI:
     )
     
     # 静态文件
-    WEB_DIR = Path(__file__).parent / "web" / "dist"
+    WEB_DIR = Path(__file__).parent / "web"
     if WEB_DIR.exists():
-        app.mount("/assets", StaticFiles(directory=str(WEB_DIR / "assets")), name="assets")
+        app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
     
     @app.get("/")
     async def root():
@@ -177,6 +228,16 @@ if HAS_FASTAPI:
     async def health_check():
         """健康检查"""
         return {"status": "ok", "clients": len(state.sse_clients)}
+    
+    @app.get("/api/nodes")
+    async def get_nodes():
+        """获取节点状态"""
+        return state.node_status
+    
+    @app.get("/api/nodes/current")
+    async def get_current_node():
+        """获取当前执行节点"""
+        return {"currentNode": state.current_node, "nodeStatus": state.node_status}
 
 # ==================== 基础 HTTP 服务器（无 FastAPI 时） ====================
 
@@ -299,6 +360,8 @@ class TianLiHarnessRunner:
                         state.total_steps += 1
                     if "✅ 通过" in log["msg"]:
                         state.l1_passes += 1
+                    if "🚫 拒绝" in log["msg"] or "天劫触发" in log["msg"]:
+                        state.early_exits += 1
                     if "TIANJIE-L2" in log["module"]:
                         state.l2_checks += 1
             
