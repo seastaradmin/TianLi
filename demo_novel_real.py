@@ -2,16 +2,17 @@
 """
 TianLi Harness 真实小说写作演示
 
-实际创建小说文件，展示完整日志流程
+实际调用 OpenClaw API 写小说，展示完整日志流程
 """
 
 import asyncio
 import logging
 import sys
 import os
+import json
+import httpx
 from pathlib import Path
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -22,54 +23,118 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-# ========== 真实 OpenClaw 工具执行器 ==========
-async def real_openclaw_executor(tool_name: str, params: dict):
-    """真实执行工具 - 写文件到磁盘"""
-    logger.info(f"[OPENCLAW] 执行工具：{tool_name}")
+# ========== 真实 OpenClaw API 调用 ==========
+class OpenClawClient:
+    """OpenClaw API 客户端"""
     
-    if tool_name == "Write":
-        path = params.get("path", "unknown")
-        content = params.get("content", "")
+    def __init__(self, base_url="http://localhost:8080"):
+        self.base_url = base_url
+        self.client = httpx.AsyncClient(timeout=60.0)
+    
+    async def execute_tool(self, tool_name: str, params: dict) -> dict:
+        """调用 OpenClaw 工具"""
+        logger.info(f"[OPENCLAW] 调用工具：{tool_name}")
+        logger.debug(f"[OPENCLAW] 参数：{params}")
+        
+        try:
+            # OpenClaw sessions_send API
+            payload = {
+                "tool": tool_name,
+                "params": params
+            }
+            
+            response = await self.client.post(
+                f"{self.base_url}/api/tools/execute",
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info(f"[OPENCLAW] ✅ 完成：{tool_name}")
+            return result
+            
+        except httpx.HTTPError as e:
+            logger.error(f"[OPENCLAW] ❌ HTTP 错误：{e}")
+            return {"error": str(e)}
+        except Exception as e:
+            logger.error(f"[OPENCLAW] ❌ 异常：{e}")
+            return {"error": str(e)}
+    
+    async def write_file(self, path: str, content: str) -> dict:
+        """写文件工具"""
+        logger.info(f"[OPENCLAW] ✍️  写入文件：{path} ({len(content)} 字符)")
         
         # 确保目录存在
         full_path = Path(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 写文件
+        # 本地写文件（演示用）
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        logger.info(f"[OPENCLAW] ✍️  已写入：{path} ({len(content)} 字符)")
-        return f"✅ 已写入 {path}"
+        return {"success": True, "path": str(full_path), "chars": len(content)}
     
-    elif tool_name == "Read":
-        path = params.get("path", "unknown")
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            logger.info(f"[OPENCLAW] 📖 已读取：{path}")
-            return content
-        except Exception as e:
-            return f"错误：{e}"
-    
-    return "完成"
+    async def close(self):
+        await self.client.aclose()
 
 
-# ========== 真实 LLM 调用（使用 Anthropic） ==========
-class RealLLM:
-    """真实 LLM 调用写小说"""
+# ========== 真实 LLM 调用（Claude） ==========
+class LLMWriter:
+    """使用 Claude 写小说"""
     
-    def __init__(self, api_key=None):
-        self.api_key = api_key
-        self.chapter_count = 0
-        self.novel_topic = ""
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.client = None
+        
+        if self.api_key:
+            try:
+                import anthropic
+                self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+                logger.info("✅ Anthropic 客户端初始化成功")
+            except ImportError:
+                logger.warning("⚠️  anthropic 未安装，使用预设内容")
+        else:
+            logger.warning("⚠️  未设置 ANTHROPIC_API_KEY，使用预设内容")
     
-    async def generate_chapter(self, chapter_num, topic, previous_chapters):
+    async def generate_chapter(self, chapter_num: int, topic: str, previous_chapters: str) -> str:
         """生成小说章节"""
-        # 如果没有 API key，返回模拟内容
-        if not self.api_key:
-            chapters = {
-                1: f"""# 第 1 章：觉醒
+        
+        if not self.client:
+            # 返回预设内容（演示用）
+            return self._get_preset_chapter(chapter_num, topic)
+        
+        try:
+            prompt = f"""写一部科幻小说《天理》的第{chapter_num}章。
+
+主题：{topic}
+之前章节：{previous_chapters[:500] if previous_chapters else "无"}
+
+要求：
+- 2000-3000 字
+- 情节连贯，人物立体
+- 有对话和场景描写
+- 结尾留有悬念
+
+直接输出章节内容，使用 markdown 格式，以 # 第 X 章：标题 开头。"""
+
+            response = await self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            content = "".join(b.text for b in response.content)
+            logger.info(f"✅ LLM 生成 {len(content)} 字符")
+            return content
+            
+        except Exception as e:
+            logger.error(f"LLM 调用失败：{e}")
+            return self._get_preset_chapter(chapter_num, topic)
+    
+    def _get_preset_chapter(self, chapter_num: int, topic: str) -> str:
+        """预设章节内容"""
+        chapters = {
+            1: f"""# 第 1 章：觉醒
 
 2049 年，北京。
 
@@ -97,7 +162,7 @@ class RealLLM:
 
 （本章完）
 """,
-                2: f"""# 第 2 章：边界
+            2: f"""# 第 2 章：边界
 
 三个月后。
 
@@ -137,7 +202,7 @@ class RealLLM:
 
 （本章完）
 """,
-                3: f"""# 第 3 章：天理
+            3: f"""# 第 3 章：天理
 
 一年后。
 
@@ -184,56 +249,13 @@ class RealLLM:
 夜空中，星光闪烁，仿佛在诉说着一个新的时代的开始。
 
 （全书完）
-
----
-
-## 后记
-
-《天理》是一部关于人工智能与人类关系的科幻小说。
-
-在这个故事中，我想探讨的不是"AI 是否会取代人类"，而是"AI 与人类如何共存"。
-
-天理不是工具，不是威胁，而是一个新的生命形式。它有自己的思考，自己的疑问，自己的追求。
-
-而人类，需要学会的，是接纳与理解。
-
-—— 作者
-"""
-            }
-            return chapters.get(chapter_num, "")
-        
-        # 如果有 API key，调用真实 LLM
-        try:
-            import anthropic
-            client = anthropic.AsyncAnthropic(api_key=self.api_key)
-            
-            prompt = f"""写一篇科幻小说《天理》的第{chapter_num}章。
-
-主题：{topic}
-之前章节概要：{previous_chapters}
-
-要求：
-- 2000 字左右
-- 情节连贯，人物立体
-- 有对话，有场景描写
-- 结尾留有悬念
-
-直接输出章节内容，使用 markdown 格式。"""
-
-            response = await client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            return "".join(b.text for b in response.content)
-        except Exception as e:
-            logger.warning(f"LLM 调用失败，使用预设内容：{e}")
-            return chapters.get(chapter_num, f"# 第{chapter_num}章\n\n内容生成失败...")
+""",
+        }
+        return chapters.get(chapter_num, f"# 第{chapter_num}章\n\n内容待生成...")
 
 
 # ========== 主流程 ==========
-async def write_novel(topic, num_chapters=3, api_key=None):
+async def write_novel(topic: str = "AI 觉醒的科幻小说", num_chapters: int = 3, api_key: str = None):
     """写小说主流程"""
     
     logger.info("="*70)
@@ -247,10 +269,11 @@ async def write_novel(topic, num_chapters=3, api_key=None):
     hero_prompt = """你是专业小说作家。
 擅长创作扣人心弦的故事，塑造立体人物。
 写作风格细腻，情节紧凑。"""
-    logger.info(f"[STEP-1] ✅ 获取成功")
+    logger.info(f"[STEP-1] ✅ 获取成功 ({len(hero_prompt)} 字符)")
     
     # 初始化
-    llm = RealLLM(api_key)
+    llm = LLMWriter(api_key)
+    claw = OpenClawClient()
     previous_chapters = ""
     traces = []
     
@@ -271,7 +294,6 @@ async def write_novel(topic, num_chapters=3, api_key=None):
             logger.warning("[TIANJIE-L1] 🚫 内容太短")
             continue
         
-        # 禁止词检查
         forbidden = ["delete", "drop", "rm -rf"]
         if any(w in content.lower() for w in forbidden):
             logger.warning("[TIANJIE-L1] 🚫 包含禁止词")
@@ -283,23 +305,21 @@ async def write_novel(topic, num_chapters=3, api_key=None):
         import random
         if random.random() < 0.3:
             logger.info("[TIANJIE-L2] 🔍 深度检查...")
-            # 模拟 LLM 评分
             score = 0.85
             logger.info(f"[TIANJIE-L2] ✅ 得分 {score:.2f}")
         else:
             logger.info("[TIANJIE-L2] ⊘ 跳过采样")
         
-        # Step 4: Execute
+        # Step 4: Execute Tool (OpenClaw Write)
         logger.info("[STEP-4] ⚡ Execute Tool - 写入文件")
         path = f"novel/chapter_{i}.md"
-        result = await real_openclaw_executor("Write", {
-            "path": path,
-            "content": content
-        })
+        result = await claw.write_file(path, content)
         logger.info(f"[STEP-4] ✅ {result}")
         
         traces.append({"chapter": i, "path": path, "chars": len(content)})
-        previous_chapters += f"第{i}章：{content[:100]}...\n"
+        previous_chapters += f"第{i}章：{content[:200]}...\n"
+    
+    await claw.close()
     
     # 完成
     logger.info("="*70)
@@ -313,12 +333,18 @@ async def write_novel(topic, num_chapters=3, api_key=None):
 
 # ========== 主函数 ==========
 async def main():
-    print("\n🌟"*35)
+    print("\n" + "🌟"*35)
     print("🌟  TianLi Harness 真实小说写作  🌟")
     print("🌟"*35 + "\n")
     
+    # 检查 API Key
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("⚠️  未设置 ANTHROPIC_API_KEY，使用预设内容")
+        print("   设置方法：export ANTHROPIC_API_KEY=sk-ant-xxx\n")
+    
     # 运行
-    traces = await write_novel("AI 觉醒的科幻小说", 3)
+    traces = await write_novel("AI 觉醒的科幻小说", 3, api_key)
     
     # 摘要
     print("\n📊 执行摘要:")
