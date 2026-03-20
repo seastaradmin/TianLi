@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🌟 TianLi Console - 天理控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+      .animate-pulse-dot { animation: pulse-dot 2s infinite; }
+      
+      /* 自定义滚动条 */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #1e293b; }
+      ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+      
+      /* 日志动画 */
+      @keyframes slideIn {
+        from { transform: translateX(-10px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      .log-enter { animation: slideIn 0.3s ease-out; }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <div id="app"></div>
+    
+    <script>
+      // ==================== 状态管理 ====================
+      const state = {
+        status: 'idle', // idle, running, completed, error
+        totalSteps: 0,
+        earlyExits: 0,
+        l1Passes: 0,
+        l2Checks: 0,
+        logs: [],
+        connected: false,
+        autoScroll: true
+      };
+      
+      // ==================== 组件 ====================
+      function StatsCard({ title, value, icon, color = 'blue' }) {
+        const colors = {
+          blue: 'from-blue-600 to-blue-700',
+          green: 'from-green-600 to-green-700',
+          purple: 'from-purple-600 to-purple-700',
+          red: 'from-red-600 to-red-700',
+          yellow: 'from-yellow-600 to-yellow-700'
+        };
+        
+        return `
+          <div class="bg-gradient-to-br ${colors[color]} rounded-xl p-4 shadow-lg">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-white/80 text-sm">${title}</div>
+                <div class="text-2xl font-bold mt-1">${value}</div>
+              </div>
+              <div class="text-3xl opacity-80">${icon}</div>
+            </div>
+          </div>
+        `;
+      }
+      
+      function LogLine(log) {
+        const levelColors = {
+          INFO: 'text-blue-400 bg-blue-900/30 border-blue-600',
+          DEBUG: 'text-gray-400 bg-gray-800/30 border-gray-600',
+          WARN: 'text-yellow-400 bg-yellow-900/30 border-yellow-600',
+          ERROR: 'text-red-400 bg-red-900/30 border-red-600'
+        };
+        
+        const colors = levelColors[log.level] || levelColors.INFO;
+        
+        return `
+          <div class="log-enter flex gap-2 mb-2 p-2 rounded hover:bg-white/5 font-mono text-xs">
+            <span class="text-gray-500 w-16 flex-shrink-0">${log.time}</span>
+            <span class="px-2 py-0.5 rounded text-xs font-bold ${colors}">${log.level}</span>
+            <span class="text-purple-400 w-28 flex-shrink-0 font-bold">${log.module}</span>
+            <span class="text-gray-200 flex-1">${log.msg}</span>
+          </div>
+        `;
+      }
+      
+      function ControlPanel() {
+        const statusColors = {
+          idle: 'bg-gray-600',
+          running: 'bg-green-600 animate-pulse',
+          completed: 'bg-blue-600',
+          error: 'bg-red-600'
+        };
+        
+        const statusText = {
+          idle: '⏸️ 空闲',
+          running: '🔄 运行中',
+          completed: '✅ 完成',
+          error: '❌ 错误'
+        };
+        
+        return `
+          <div class="bg-gray-800 rounded-xl p-4 shadow-lg mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+              <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-full ${statusColors[state.status]}"></div>
+                <span class="font-bold text-lg">${statusText[state.status]}</span>
+              </div>
+              
+              <div class="flex-1"></div>
+              
+              <button onclick="startTask()" 
+                class="bg-green-600 hover:bg-green-700 disabled:bg-gray-700 px-6 py-2 rounded-lg font-bold transition disabled:cursor-not-allowed"
+                ${state.status === 'running' ? 'disabled' : ''}>
+                ▶️ 启动
+              </button>
+              
+              <button onclick="stopTask()"
+                class="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-700 px-6 py-2 rounded-lg font-bold transition disabled:cursor-not-allowed"
+                ${state.status !== 'running' ? 'disabled' : ''}>
+                ⏹️ 停止
+              </button>
+              
+              <button onclick="clearLogs()"
+                class="bg-gray-700 hover:bg-gray-600 px-6 py-2 rounded-lg font-bold transition">
+                🗑️ 清空
+              </button>
+              
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="autoScroll" checked onchange="state.autoScroll = this.checked"
+                  class="w-4 h-4 rounded bg-gray-700 border-gray-600">
+                <span class="text-sm text-gray-400">自动滚动</span>
+              </label>
+            </div>
+          </div>
+        `;
+      }
+      
+      function ArchitectureDiagram() {
+        return `
+          <div class="bg-gray-800 rounded-xl p-6 shadow-lg">
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+              <span>🏗️</span> 架构流程
+            </h3>
+            
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <div class="flex items-center gap-2 bg-blue-900/30 border border-blue-700 px-4 py-3 rounded-lg">
+                <span class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">1</span>
+                <div>
+                  <div class="font-bold">Fetch DNA</div>
+                  <div class="text-gray-400 text-xs">获取 Hero Prompt</div>
+                </div>
+              </div>
+              
+              <span class="text-gray-600 text-2xl">→</span>
+              
+              <div class="flex items-center gap-2 bg-purple-900/30 border border-purple-700 px-4 py-3 rounded-lg">
+                <span class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold">2</span>
+                <div>
+                  <div class="font-bold">Agent Reason</div>
+                  <div class="text-gray-400 text-xs">LLM 推理</div>
+                </div>
+              </div>
+              
+              <span class="text-gray-600 text-2xl">→</span>
+              
+              <div class="flex items-center gap-2 bg-red-900/30 border border-red-700 px-4 py-3 rounded-lg">
+                <span class="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center font-bold">3</span>
+                <div>
+                  <div class="font-bold">TianJie Audit</div>
+                  <div class="text-gray-400 text-xs">天劫审查</div>
+                </div>
+              </div>
+              
+              <span class="text-gray-600 text-2xl">→</span>
+              
+              <div class="flex items-center gap-2 bg-green-900/30 border border-green-700 px-4 py-3 rounded-lg">
+                <span class="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center font-bold">4</span>
+                <div>
+                  <div class="font-bold">Execute</div>
+                  <div class="text-gray-400 text-xs">执行工具</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mt-4 flex gap-4 text-xs text-gray-400">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+                <span>L1: 禁止词 / 空参数 / 重复检测</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-purple-600"></span>
+                <span>L2: 深度语义检查（30% 采样）</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      
+      function App() {
+        return `
+          <div class="min-h-screen p-6">
+            <!-- 头部 -->
+            <header class="mb-6">
+              <div class="flex items-center gap-3">
+                <div class="text-4xl">🌟</div>
+                <div>
+                  <h1 class="text-3xl font-bold text-blue-400">TianLi Console</h1>
+                  <p class="text-gray-400">天理 Harness · 实时控制台</p>
+                </div>
+                ${state.connected ? '<span class="ml-auto text-green-400 text-sm">🟢 已连接</span>' : ''}
+              </div>
+            </header>
+            
+            <!-- 统计卡片 -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              ${StatsCard({ title: '状态', value: state.status, icon: '🎯', color: state.status === 'running' ? 'green' : 'blue' })}
+              ${StatsCard({ title: '总步数', value: state.totalSteps, icon: '📊', color: 'blue' })}
+              ${StatsCard({ title: '天劫触发', value: state.earlyExits, icon: '⚡', color: state.earlyExits > 0 ? 'red' : 'green' })}
+              ${StatsCard({ title: 'L1 通过', value: state.l1Passes, icon: '✅', color: 'green' })}
+              ${StatsCard({ title: 'L2 检查', value: state.l2Checks, icon: '🔍', color: 'purple' })}
+            </div>
+            
+            <!-- 控制面板 -->
+            ${ControlPanel()}
+            
+            <!-- 日志窗口 -->
+            <div class="bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-6">
+              <div class="bg-gray-900 px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">📋</span>
+                  <span class="font-bold">实时日志</span>
+                  ${state.status === 'running' ? '<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>' : ''}
+                </div>
+                <span class="text-sm text-gray-400">${state.logs.length} 条</span>
+              </div>
+              <div id="logContainer" class="p-4 h-96 overflow-y-auto bg-gray-950">
+                ${state.logs.length === 0 ? `
+                  <div class="text-gray-500 text-center py-16">
+                    <div class="text-6xl mb-4">📭</div>
+                    <div class="text-xl">暂无日志</div>
+                    <div class="text-sm mt-2">点击"启动"开始运行任务</div>
+                  </div>
+                ` : state.logs.map(LogLine).join('')}
+                <div id="logEnd"></div>
+              </div>
+            </div>
+            
+            <!-- 架构图 -->
+            ${ArchitectureDiagram()}
+            
+            <!-- 底部信息 -->
+            <footer class="mt-6 text-center text-xs text-gray-500">
+              TianLi Harness v1.0 · Built with FastAPI + React + TailwindCSS
+            </footer>
+          </div>
+        `;
+      }
+      
+      // ==================== 渲染函数 ====================
+      function render() {
+        document.getElementById('app').innerHTML = App();
+        if (state.autoScroll) {
+          const logEnd = document.getElementById('logEnd');
+          if (logEnd) logEnd.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+      
+      // ==================== API 调用 ====================
+      async function startTask() {
+        try {
+          const response = await fetch('/api/run/start', { method: 'POST' });
+          const data = await response.json();
+          console.log('启动:', data);
+        } catch (error) {
+          console.error('启动失败:', error);
+          alert('启动失败：' + error.message);
+        }
+      }
+      
+      async function stopTask() {
+        try {
+          const response = await fetch('/api/run/stop', { method: 'POST' });
+          const data = await response.json();
+          console.log('停止:', data);
+        } catch (error) {
+          console.error('停止失败:', error);
+        }
+      }
+      
+      function clearLogs() {
+        state.logs = [];
+        render();
+      }
+      
+      // ==================== SSE 连接 ====================
+      function connectSSE() {
+        const eventSource = new EventSource('/api/logs');
+        
+        eventSource.addEventListener('log', (event) => {
+          const log = JSON.parse(event.data);
+          state.logs.push(log);
+          // 保持最近 500 条
+          if (state.logs.length > 500) {
+            state.logs = state.logs.slice(-500);
+          }
+          render();
+        });
+        
+        eventSource.addEventListener('stats', (event) => {
+          const stats = JSON.parse(event.data);
+          state.status = stats.status;
+          state.totalSteps = stats.totalSteps;
+          state.earlyExits = stats.earlyExits;
+          state.l1Passes = stats.l1Passes;
+          state.l2Checks = stats.l2Checks;
+          state.connected = true;
+          render();
+        });
+        
+        eventSource.onerror = () => {
+          console.error('SSE 连接错误');
+          state.connected = false;
+          render();
+        };
+      }
+      
+      // ==================== 初始化 ====================
+      render();
+      connectSSE();
+    </script>
+  </body>
+</html>

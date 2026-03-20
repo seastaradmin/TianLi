@@ -97,49 +97,18 @@ if HAS_FASTAPI:
     @app.get("/")
     async def root():
         """提供前端页面"""
+        # 优先提供新的 dashboard.html
+        dashboard_html = Path(__file__).parent / "web" / "dashboard.html"
+        if dashboard_html.exists():
+            return FileResponse(str(dashboard_html))
+        
         index_html = WEB_DIR / "index.html"
         if index_html.exists():
             return FileResponse(str(index_html))
         
-        # 开发模式：返回简单页面
-        return HTMLResponse("""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>TianLi Console</title>
-            <style>
-                body { background: #1a1a2e; color: #eee; font-family: monospace; padding: 20px; }
-                .log { margin: 5px 0; padding: 5px; background: #16213e; border-left: 3px solid #0f3460; }
-                .status { padding: 10px; background: #0f3460; margin-bottom: 20px; }
-            </style>
-        </head>
-        <body>
-            <h1>🌟 TianLi Console</h1>
-            <div id="status" class="status">状态：idle</div>
-            <div id="logs"></div>
-            <script>
-                const eventSource = new EventSource('/api/logs');
-                const logsDiv = document.getElementById('logs');
-                const statusDiv = document.getElementById('status');
-                
-                eventSource.addEventListener('log', (e) => {
-                    const log = JSON.parse(e.data);
-                    const div = document.createElement('div');
-                    div.className = 'log';
-                    div.textContent = `[${log.time}] [${log.level}] [${log.module}] ${log.msg}`;
-                    logsDiv.appendChild(div);
-                    logsDiv.scrollTop = logsDiv.scrollHeight;
-                });
-                
-                eventSource.addEventListener('stats', (e) => {
-                    const stats = JSON.parse(e.data);
-                    statusDiv.textContent = `状态：${stats.status} | 步骤：${stats.totalSteps} | L1 通过：${stats.l1Passes} | L2 检查：${stats.l2Checks}`;
-                });
-            </script>
-        </body>
-        </html>
-        """)
+        # 重定向到 dashboard
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/dashboard.html")
     
     @app.get("/api/logs")
     async def stream_logs(request: Request):
