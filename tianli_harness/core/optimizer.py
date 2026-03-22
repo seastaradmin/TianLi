@@ -1,85 +1,66 @@
-"""TianYan Optimizer - Generates evolution patches for System Prompts after early exit."""
+"""TianYan Optimizer - Generates evolution patches after early exit."""
 
-from typing import List
+from __future__ import annotations
+
 from datetime import datetime
+from typing import List
+
 from tianli_harness.core.state import ActionTrace, HarnessConfig
 
 
 class TianYanOptimizer:
-    """TianYan (天演) optimizer - generates evolution patches for System Prompts
-    after early exit, and optionally auto-commits to GitHub."""
+    """TianYan (天演) optimizer for failed runs."""
 
     def __init__(self, anthropic, config: HarnessConfig):
-        """
-        Initialize TianYan Optimizer.
-        
-        Args:
-            anthropic: AsyncAnthropic client
-            config: Harness configuration
-        """
         self.anthropic = anthropic
         self.config = config
 
-    async def generate_patch(
-        self,
-        messages: List[dict],
-        traces: List[ActionTrace]
-    ) -> str:
-        """
-        Generate evolution patch after early exit.
-        
-        Args:
-            messages: Conversation history including system prompt
-            traces: Execution traces showing what failed
-            
-        Returns:
-            Markdown-formatted patch with improvement suggestions
-        """
-        # Extract original system prompt
+    async def generate_patch(self, messages: List[dict], traces: List[ActionTrace]) -> str:
+        """Generate a markdown patch proposal from failed traces."""
         original_prompt = ""
         for msg in messages:
             if msg.get("role") == "system":
-                original_prompt = msg.get("content", "")
+                original_prompt = str(msg.get("content", ""))
                 break
 
-        # Collect failed traces
-        failed_traces = [t for t in traces if not t.is_valid]
-        if not failed_traces:
-            # If no explicit failed, take last few
-            failed_traces = traces[-3:]
-
+        failed_traces = [trace for trace in traces if not trace.is_valid] or traces[-3:]
         failed_text = self._format_failed_traces(failed_traces)
+
+        if not self.anthropic:
+            return self._heuristic_patch(original_prompt, failed_traces)
 
         prompt = f"""你是 TianLi Harness 天演优化器。
 
-原始 System Prompt 来自 GitHub:
+原始 System Prompt:
 ---
 {original_prompt}
 ---
 
-执行历史中，以下步骤触发了天劫熔断:
+以下步骤触发了天劫熔断:
 ---
 {failed_text}
 ---
 
 请总结失败原因，给出一份对原始 System Prompt 的修改建议 Patch。
-
-Patch 应当：
-1. 指出哪些地方需要修改
-2. 给出修改后的具体内容
-3. 解释为什么这样修改能防止未来再次触发同样的天劫
-
-请用 markdown 格式输出，使用 git diff 风格展示改动。
+要求：
+1. 先总结根因
+2. 再给出 markdown 格式的 patch
+3. patch 使用 git diff 风格
 """
 
-        response = await self.anthropic.messages.create(
-            model="claude-opus-4-5-20250929",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        try:
+            response = await self.anthropic.messages.create(
+                model=self.config.audit_model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "".join(block.text for block in response.content if getattr(block, "type", "") == "text").strip()
+            if text:
+                return text
+        except Exception:
+            pass
 
-        text = "".join(b.text for b in response.content if b.type == "text").strip()
-        return text
+        return self._heuristic_patch(original_prompt, failed_traces)
 
     async def commit_patch(
         self,
@@ -87,67 +68,56 @@ Patch 应当：
         hero_id: str,
         repo_owner: str,
         repo_name: str,
-        github_token: str
+        github_token: str,
     ) -> str:
-        """
-        Commit the evolution patch to GitHub as a new branch.
-        
-        Args:
-            patch_content: The evolution patch content
-            hero_id: Hero prompt filename
-            repo_owner: GitHub repository owner
-            repo_name: GitHub repository name
-            github_token: GitHub API token
-            
-        Returns:
-            GitHub compare URL for the new branch
-        """
+        """Commit the generated patch into a dedicated advisory file on a new branch."""
         from github import Github
-        
-        g = Github(github_token)
-        repo = g.get_repo(f"{repo_owner}/{repo_name}")
 
-        # Create new branch
+        github = Github(github_token)
+        repo = github.get_repo(f"{repo_owner}/{repo_name}")
+
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         branch_name = f"tianli/evolution-{timestamp}"
         source = repo.get_branch("main")
-        repo.create_git_ref(
-            ref=f"refs/heads/{branch_name}",
-            sha=source.commit.sha
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=source.commit.sha)
+
+        file_path = f"tianli-evolution/{hero_id.replace('/', '__')}-{timestamp}.patch.md"
+        repo.create_file(
+            file_path,
+            f"tianli: evolution patch for {hero_id}",
+            patch_content,
+            branch=branch_name,
         )
-
-        # Update the file - append the evolution patch
-        file_path = f"{hero_id}.md"
-        try:
-            contents = repo.get_contents(file_path, ref="main")
-            existing_content = contents.decoded_content.decode("utf-8")
-            new_content = existing_content + "\n\n---\n\n## TianLi Evolution Patch\n\n" + patch_content
-            repo.update_file(
-                file_path,
-                f"tianli: auto-evolution - fix early exit on {hero_id}",
-                new_content,
-                contents.sha,
-                branch=branch_name
-            )
-        except Exception as e:
-            # File doesn't exist - create it
-            repo.create_file(
-                file_path,
-                f"tianli: auto-evolution - initial {hero_id} with evolution patch",
-                patch_content,
-                branch=branch_name
-            )
-
-        # Return the compare URL
         return f"https://github.com/{repo_owner}/{repo_name}/compare/main...{branch_name}"
 
     def _format_failed_traces(self, traces: List[ActionTrace]) -> str:
-        """Format failed traces for prompt."""
         lines = []
-        for i, trace in enumerate(traces):
-            lines.append(f"Step {trace.step}: tool={trace.tool_name}")
+        for trace in traces:
+            lines.append(f"Step {trace.step}: hero={trace.hero_id or 'unknown'} tool={trace.tool_name}")
+            lines.append(f"Parameters: {trace.parameters}")
             lines.append(f"Observation: {trace.observation[:200]}")
             if trace.audit_score is not None:
                 lines.append(f"Audit score: {trace.audit_score:.2f}")
+            if trace.audit_reason:
+                lines.append(f"Audit reason: {trace.audit_reason}")
             lines.append("---")
         return "\n".join(lines)
+
+    def _heuristic_patch(self, original_prompt: str, failed_traces: List[ActionTrace]) -> str:
+        reasons = [trace.audit_reason or trace.observation for trace in failed_traces]
+        concise_reason = reasons[0] if reasons else "The run drifted away from the requested task."
+        return "\n".join(
+            [
+                "## TianYan Summary",
+                concise_reason,
+                "",
+                "```diff",
+                "--- current-prompt.md",
+                "+++ improved-prompt.md",
+                "@@",
+                f"- {original_prompt[:120] or 'Current prompt is too generic.'}",
+                "+ Stay tightly aligned with the active task. Before each tool call, confirm the action directly advances the current task and avoid repeated calls with near-identical parameters.",
+                "+ If confidence is low, summarize uncertainty and request a narrower next action instead of guessing.",
+                "```",
+            ]
+        )

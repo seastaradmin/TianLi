@@ -10,6 +10,10 @@ pydantic>=2.0.0
 # HTTP Client
 httpx>=0.25.0
 
+# Backend API
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
 # LLM
 anthropic>=0.40.0
 

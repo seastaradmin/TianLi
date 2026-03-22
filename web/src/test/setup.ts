@@ -62,3 +62,34 @@ class MockWebSocket {
 
 // @ts-ignore
 global.WebSocket = MockWebSocket
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+// @ts-ignore
+global.ResizeObserver = MockResizeObserver
+
+const localStorageState = new Map<string, string>()
+
+const mockLocalStorage = {
+  getItem(key: string) {
+    return localStorageState.has(key) ? localStorageState.get(key)! : null
+  },
+  setItem(key: string, value: string) {
+    localStorageState.set(key, String(value))
+  },
+  removeItem(key: string) {
+    localStorageState.delete(key)
+  },
+  clear() {
+    localStorageState.clear()
+  },
+}
+
+// @ts-ignore
+global.localStorage = mockLocalStorage
+// @ts-ignore
+globalThis.localStorage = mockLocalStorage

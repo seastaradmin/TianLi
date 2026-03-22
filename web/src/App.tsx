@@ -1,167 +1,369 @@
-// App.tsx
-import { useState, useEffect, useCallback } from 'react'
-import {
-  Header,
-  StatsBar,
-  ControlPanel,
-  LogViewer,
-  FlowDiagram
-} from './components'
-import { useLogStore, useStatsStore } from './stores'
-import { useSSE } from './hooks'
-import type { LogEntry, Stats } from './types'
+import { useEffect, useMemo, useState } from 'react'
 
-// SSE 服务端 URL（开发环境可配置）
-const SSE_URL = import.meta.env.VITE_SSE_URL || 'http://localhost:1420/api/logs'
+import { DestinyConsole } from './components/DestinyConsole'
+import { GalaxyPage } from './components/galaxy/GalaxyPage'
+import { ObservatoryDrawer } from './components/observatory/ObservatoryDrawer'
+import { useSSE } from './hooks'
+import { t } from './i18n'
+import type { Language, UiAnchor } from './types'
+import { useLogStore, useSkyStore, useStatsStore } from './stores'
+import type { HeroState, SkySnapshot, SkillDispatchState, TaskState } from './types'
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:1420'
+const SSE_URL = `${API_BASE}/api/logs`
+const LANGUAGE_STORAGE_KEY = 'tianli-language'
+
+type SkillTraceState = SkillDispatchState & { taskTitle?: string }
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init)
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  return response.json() as Promise<T>
+}
+
+function resolveHeroTask(tasks: TaskState[], heroId: string, currentTaskId?: string | null) {
+  if (currentTaskId) {
+    const directTask = tasks.find((task) => task.taskId === currentTaskId)
+    if (directTask) {
+      return directTask
+    }
+  }
+  return tasks.find((task) => task.selectedHeroIds.includes(heroId)) ?? null
+}
+
+function collectHeroSkillDispatches(tasks: TaskState[], heroId: string, preferredTaskId?: string | null): SkillTraceState[] {
+  return tasks
+    .flatMap((task) =>
+      (task.skillDispatches ?? [])
+        .filter((skill) => skill.heroId === heroId && skill.status === 'applied')
+        .map((skill) => ({ ...skill, taskTitle: task.title, taskId: task.taskId })),
+    )
+    .sort((left, right) => {
+      const leftPreferred = preferredTaskId && left.taskId === preferredTaskId ? 1 : 0
+      const rightPreferred = preferredTaskId && right.taskId === preferredTaskId ? 1 : 0
+      if (leftPreferred !== rightPreferred) {
+        return rightPreferred - leftPreferred
+      }
+      const leftCompleted = left.executionStatus === 'completed' ? 1 : 0
+      const rightCompleted = right.executionStatus === 'completed' ? 1 : 0
+      return rightCompleted - leftCompleted
+    })
+}
 
 function App() {
-  // 从 Zustand stores 获取状态和方法
-  const logs = useLogStore(state => state.logs)
-  const autoScroll = useLogStore(state => state.autoScroll)
-  const setAutoScroll = useLogStore(state => state.setAutoScroll)
-  const addLog = useLogStore(state => state.addLog)
-  const clearLogs = useLogStore(state => state.clearLogs)
-  
-  const stats = useStatsStore(state => ({
+  const logs = useLogStore((state) => state.logs)
+  const addLog = useLogStore((state) => state.addLog)
+  const addLogs = useLogStore((state) => state.addLogs)
+  const clearLogs = useLogStore((state) => state.clearLogs)
+
+  const stats = useStatsStore((state) => ({
     status: state.status,
     totalSteps: state.totalSteps,
     earlyExits: state.earlyExits,
     l1Passes: state.l1Passes,
-    l2Checks: state.l2Checks
+    l2Checks: state.l2Checks,
+    activeHeroes: state.activeHeroes,
+    activeTasks: state.activeTasks,
   }))
-  const updateStats = useStatsStore(state => state.updateStats)
-  const resetStats = useStatsStore(state => state.reset)
-  const setStatus = useStatsStore(state => state.setStatus)
-  const incrementStep = useStatsStore(state => state.incrementStep)
-  const incrementEarlyExit = useStatsStore(state => state.incrementEarlyExit)
-  const incrementL1Pass = useStatsStore(state => state.incrementL1Pass)
-  const incrementL2Check = useStatsStore(state => state.incrementL2Check)
+  const hydrateStats = useStatsStore((state) => state.hydrate)
 
-  // 本地状态用于模拟数据（实际使用时可移除）
-  const [useMockData, setUseMockData] = useState(true)
+  const heroes = useSkyStore((state) => state.heroes)
+  const tasks = useSkyStore((state) => state.tasks)
+  const judgmentQueue = useSkyStore((state) => state.judgmentQueue)
+  const flows = useSkyStore((state) => state.flows)
+  const runSummary = useSkyStore((state) => state.runSummary)
+  const selectedNodeId = useSkyStore((state) => state.selectedNodeId)
+  const hoverHudNodeId = useSkyStore((state) => state.hoverHudNodeId)
+  const hoverHudAnchor = useSkyStore((state) => state.hoverHudAnchor)
+  const isObservatoryOpen = useSkyStore((state) => state.isObservatoryOpen)
+  const drawerOrigin = useSkyStore((state) => state.drawerOrigin)
+  const hydrateSky = useSkyStore((state) => state.hydrate)
+  const selectNode = useSkyStore((state) => state.selectNode)
+  const setHoverHudNode = useSkyStore((state) => state.setHoverHudNode)
+  const openObservatory = useSkyStore((state) => state.openObservatory)
+  const closeObservatory = useSkyStore((state) => state.closeObservatory)
 
-  // SSE 连接 - 实时日志推送
-  const handleLog = useCallback((log: LogEntry) => {
-    addLog(log)
-    // 根据日志内容更新统计
-    if (log.module === 'EXECUTE') incrementStep()
-    if (log.msg.includes('✅ 通过')) incrementL1Pass()
-    if (log.module === 'TIANJIE-L2') incrementL2Check()
-    if (log.msg.includes('天劫触发') || log.msg.includes('early exit')) incrementEarlyExit()
-  }, [addLog, incrementStep, incrementL1Pass, incrementL2Check, incrementEarlyExit])
+  const [taskInput, setTaskInput] = useState('')
+  const [pinnedHeroInput, setPinnedHeroInput] = useState('')
+  const [judgmentInput, setJudgmentInput] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [language, setLanguage] = useState<Language>(() => {
+    if (typeof window === 'undefined') {
+      return 'zh'
+    }
+    const persisted = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    return persisted === 'en' ? 'en' : 'zh'
+  })
 
-  const handleStats = useCallback((newStats: Stats) => {
-    updateStats(newStats)
-  }, [updateStats])
+  const { isConnected } = useSSE(SSE_URL, {
+    enabled: true,
+    onLog: addLog,
+    onStats: hydrateStats,
+    onSkyState: (snapshot) => {
+      hydrateSky(snapshot)
+      hydrateStats(snapshot.stats)
+    },
+  })
 
-  // 使用 SSE 连接（实际后端可用时启用）
-  // const { isConnected } = useSSE(SSE_URL, {
-  //   onLog: handleLog,
-  //   onStats: handleStats,
-  //   enabled: !useMockData
-  // })
-
-  // 模拟日志流（演示用，实际使用时移除）
   useEffect(() => {
-    if (!useMockData || stats.status !== 'running') return
+    const loadSnapshot = async () => {
+      try {
+        const snapshot = await fetchJson<SkySnapshot>(`${API_BASE}/api/status`)
+        hydrateSky(snapshot)
+        hydrateStats(snapshot.stats)
+        clearLogs()
+        addLogs(snapshot.logs)
+      } catch (error) {
+        addLog({
+          id: `boot-${Date.now()}`,
+          time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+          level: 'WARN',
+          module: 'UI',
+          msg: t(language, 'load_snapshot_failed', { error: String(error) }),
+          msgZh: t('zh', 'load_snapshot_failed', { error: String(error) }),
+          msgEn: t('en', 'load_snapshot_failed', { error: String(error) }),
+        })
+      }
+    }
 
-    const mockLogs: Omit<LogEntry, 'time'>[] = [
-      { id: Date.now() + 1, level: 'INFO', module: 'FETCH_DNA', msg: '🧬 Fetch DNA - 获取 Hero Prompt' },
-      { id: Date.now() + 2, level: 'INFO', module: 'FETCH_DNA', msg: '✅ 获取成功 (42 字符)' },
-      { id: Date.now() + 3, level: 'INFO', module: 'AGENT_REASON', msg: '🧠 Agent Reasoning - 第 1 轮推理' },
-      { id: Date.now() + 4, level: 'DEBUG', module: 'TIANJIE-L1', msg: '检查：Write' },
-      { id: Date.now() + 5, level: 'INFO', module: 'TIANJIE-L1', msg: '✅ 通过' },
-      { id: Date.now() + 6, level: 'INFO', module: 'TIANJIE-L2', msg: '⊘ 跳过采样' },
-      { id: Date.now() + 7, level: 'INFO', module: 'EXECUTE', msg: '⚡ 执行工具：Write' },
-      { id: Date.now() + 8, level: 'INFO', module: 'OPENCLAW', msg: '✍️ 已写入：novel/chapter_1.md' },
-    ]
+    void loadSnapshot()
+  }, [addLog, addLogs, clearLogs, hydrateSky, hydrateStats])
 
-    let delay = 0
-    mockLogs.forEach((log) => {
-      delay += 500
-      setTimeout(() => {
-        addLog({ ...log, time: new Date().toLocaleTimeString('zh-CN') })
-      }, delay)
-    })
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+  }, [language])
 
-    setTimeout(() => {
-      setStatus('completed')
-    }, delay + 500)
-  }, [useMockData, stats.status, addLog, setStatus])
+  useEffect(() => {
+    if (!selectedNodeId) {
+      return
+    }
 
-  // 控制函数
-  const startRun = useCallback(() => {
-    clearLogs()
-    resetStats()
-    setStatus('running')
-  }, [clearLogs, resetStats, setStatus])
+    const nodeStillExists =
+      heroes.some((hero) => hero.heroId === selectedNodeId) || tasks.some((task) => task.taskId === selectedNodeId)
 
-  const stopRun = useCallback(() => {
-    setStatus('idle')
-  }, [setStatus])
+    if (!nodeStillExists) {
+      selectNode(null)
+      setHoverHudNode(null, null)
+    }
+  }, [heroes, selectedNodeId, selectNode, setHoverHudNode, tasks])
 
-  const handleClear = useCallback(() => {
-    clearLogs()
-    resetStats()
-  }, [clearLogs, resetStats])
+  useEffect(() => {
+    if (!hoverHudNodeId) {
+      return
+    }
 
-  const handleExport = useCallback(() => {
-    const logText = logs.map(log => 
-      `[${log.time}] ${log.level} ${log.module}: ${log.msg}`
-    ).join('\n')
-    
-    const blob = new Blob([logText], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `tianli-logs-${new Date().toISOString().slice(0, 19)}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [logs])
+    const nodeStillExists =
+      heroes.some((hero) => hero.heroId === hoverHudNodeId) || tasks.some((task) => task.taskId === hoverHudNodeId)
+
+    if (!nodeStillExists) {
+      setHoverHudNode(null, null)
+    }
+  }, [heroes, hoverHudNodeId, setHoverHudNode, tasks])
+
+  const selectedHero = heroes.find((hero) => hero.heroId === selectedNodeId) ?? null
+  const selectedTask = tasks.find((task) => task.taskId === selectedNodeId) ?? null
+  const fallbackJudgmentTask = judgmentQueue[0] ?? tasks.find((task) => task.status === 'judgment_pending') ?? null
+  const selectedHeroTask = selectedHero ? resolveHeroTask(tasks, selectedHero.heroId, selectedHero.currentTaskId) : null
+  const latestTask = tasks[0] ?? null
+  const focusTask = selectedTask ?? selectedHeroTask ?? fallbackJudgmentTask ?? latestTask
+  const focusHero =
+    selectedHero ??
+    (focusTask?.primaryHeroId ? heroes.find((hero) => hero.heroId === focusTask.primaryHeroId) ?? null : heroes[0] ?? null)
+  const focusKind: 'hero' | 'task' = selectedHero ? 'hero' : focusTask ? 'task' : focusHero ? 'hero' : 'task'
+  const consultHeroes = useMemo(
+    () =>
+      (focusTask?.consultHeroIds ?? [])
+        .map((heroId) => heroes.find((hero) => hero.heroId === heroId) ?? null)
+        .filter((hero): hero is HeroState => hero !== null),
+    [focusTask, heroes],
+  )
+  const focusSkillDispatches: SkillTraceState[] = selectedHero
+    ? collectHeroSkillDispatches(tasks, selectedHero.heroId, selectedHeroTask?.taskId)
+    : (focusTask?.skillDispatches ?? [])
+        .filter((skill) => skill.status === 'applied')
+        .map((skill) => ({ ...skill, taskTitle: focusTask?.title }))
+  const recentLogs = useMemo(() => logs.slice(-10).reverse(), [logs])
+  const activeJudgmentTarget = focusTask?.status === 'judgment_pending' ? focusTask : fallbackJudgmentTask
+
+  const handleIssueDestiny = async () => {
+    const content = taskInput.trim()
+    if (!content) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const response = await fetchJson<{ taskId: string }>(`${API_BASE}/api/run/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: content,
+          pinnedHeroIds: pinnedHeroInput
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          maxFanout: 3,
+          dispatchMode: 'hybrid',
+          collaborationMode: 'primary_consult',
+        }),
+      })
+
+      selectNode(response.taskId)
+      setHoverHudNode(response.taskId, hoverHudAnchor)
+      setTaskInput('')
+      setJudgmentInput('')
+    } catch (error) {
+      addLog({
+        id: `start-${Date.now()}`,
+        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+        level: 'ERROR',
+        module: 'UI',
+        msg: t(language, 'issue_destiny_failed', { error: String(error) }),
+        msgZh: t('zh', 'issue_destiny_failed', { error: String(error) }),
+        msgEn: t('en', 'issue_destiny_failed', { error: String(error) }),
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleVerdict = async (verdict: 'approve' | 'reject') => {
+    if (!activeJudgmentTarget) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      await fetchJson(`${API_BASE}/api/run/verdict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: activeJudgmentTarget.taskId,
+          verdict,
+          judgmentNote: judgmentInput,
+        }),
+      })
+      setJudgmentInput('')
+      selectNode(activeJudgmentTarget.taskId)
+      setHoverHudNode(activeJudgmentTarget.taskId, hoverHudAnchor)
+    } catch (error) {
+      addLog({
+        id: `verdict-${Date.now()}`,
+        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+        level: 'ERROR',
+        module: 'UI',
+        msg: t(language, 'verdict_submit_failed', { error: String(error) }),
+        msgZh: t('zh', 'verdict_submit_failed', { error: String(error) }),
+        msgEn: t('en', 'verdict_submit_failed', { error: String(error) }),
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleRefreshSkills = async () => {
+    try {
+      await fetchJson(`${API_BASE}/api/skills/refresh`, { method: 'POST' })
+      addLog({
+        id: `refresh-${Date.now()}`,
+        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+        level: 'INFO',
+        module: 'UI',
+        msg: t(language, 'refresh_sources_success'),
+        msgZh: t('zh', 'refresh_sources_success'),
+        msgEn: t('en', 'refresh_sources_success'),
+      })
+    } catch (error) {
+      addLog({
+        id: `refresh-${Date.now()}`,
+        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+        level: 'WARN',
+        module: 'UI',
+        msg: t(language, 'refresh_sources_failed', { error: String(error) }),
+        msgZh: t('zh', 'refresh_sources_failed', { error: String(error) }),
+        msgEn: t('en', 'refresh_sources_failed', { error: String(error) }),
+      })
+    }
+  }
+
+  const handleGalaxySelect = (nodeId: string | null, anchor?: UiAnchor | null) => {
+    selectNode(nodeId)
+    setHoverHudNode(nodeId, anchor ?? null)
+  }
+
+  const handleDrawerSelect = (nodeId: string | null) => {
+    selectNode(nodeId)
+    setHoverHudNode(nodeId, undefined)
+  }
+
+  const handleOpenObservatory = (origin?: UiAnchor | null) => {
+    openObservatory(hoverHudAnchor ?? origin ?? null)
+  }
+
+  const handleToggleLanguage = () => {
+    setLanguage((current) => (current === 'zh' ? 'en' : 'zh'))
+  }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 lg:p-8">
-      {/* 头部 */}
-      <Header />
+    <div className={`app-shell ${isObservatoryOpen ? 'app-shell-drawer-open' : ''}`}>
+      <div className="app-orb app-orb-a" />
+      <div className="app-orb app-orb-b" />
+      <div className="app-grid" />
 
-      {/* 状态卡片 */}
-      <StatsBar stats={stats} />
-
-      {/* 操作栏 */}
-      <ControlPanel
-        status={stats.status}
-        autoScroll={autoScroll}
-        onAutoScrollChange={setAutoScroll}
-        onStart={startRun}
-        onStop={stopRun}
-        onClear={handleClear}
-        onExport={handleExport}
+      <GalaxyPage
+        heroes={heroes}
+        tasks={tasks}
+        flows={flows}
+        selectedNodeId={selectedNodeId}
+        hoverHudNodeId={hoverHudNodeId}
+        hoverHudAnchor={hoverHudAnchor}
+        isConnected={isConnected}
+        isObservatoryOpen={isObservatoryOpen}
+        language={language}
+        onToggleLanguage={handleToggleLanguage}
+        onSelectNode={handleGalaxySelect}
+        onOpenObservatory={handleOpenObservatory}
       />
 
-      {/* 日志窗口 */}
-      <LogViewer status={stats.status} />
+      <ObservatoryDrawer
+        isOpen={isObservatoryOpen}
+        selectedNodeId={selectedNodeId}
+        drawerOrigin={drawerOrigin}
+        language={language}
+        focusKind={focusKind}
+        focusTask={focusTask}
+        focusHero={focusHero}
+        consultHeroes={consultHeroes}
+        skillDispatches={focusSkillDispatches}
+        logs={recentLogs}
+        stats={stats}
+        heroes={heroes}
+        tasks={tasks}
+        runSummary={runSummary}
+        judgmentInput={judgmentInput}
+        isSubmitting={isSubmitting}
+        onToggleLanguage={handleToggleLanguage}
+        onClose={closeObservatory}
+        onSelectNode={handleDrawerSelect}
+        onJudgmentInputChange={setJudgmentInput}
+        onVerdict={handleVerdict}
+      />
 
-      {/* 架构流程图 */}
-      <FlowDiagram />
-
-      {/* 底部信息 */}
-      <footer className="mt-6 text-center text-xs text-gray-500">
-        TianLi Harness v1.0 · Built with Tauri + React + TailwindCSS · 
-        <span className="ml-2">
-          {useMockData ? '🧪 演示模式' : '📡 实时模式'}
-        </span>
-      </footer>
-
-      {/* 演示模式切换（开发用，生产环境可移除） */}
-      <div className="fixed bottom-4 right-4">
-        <button
-          onClick={() => setUseMockData(!useMockData)}
-          className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded-lg text-xs text-gray-400 transition border border-gray-700"
-          title="切换演示/实时模式"
-        >
-          {useMockData ? '🧪 演示' : '📡 实时'}
-        </button>
-      </div>
+      <DestinyConsole
+        language={language}
+        taskInput={taskInput}
+        pinnedHeroInput={pinnedHeroInput}
+        isSubmitting={isSubmitting}
+        onTaskInputChange={setTaskInput}
+        onPinnedHeroInputChange={setPinnedHeroInput}
+        onIssueDestiny={handleIssueDestiny}
+        onRefreshSkills={handleRefreshSkills}
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 // src/test/stores.test.ts - Zustand Stores 测试
 import { describe, it, expect } from 'vitest'
 import { useLogStore } from '../stores/logStore'
+import { useSkyStore } from '../stores/skyStore'
 import { useStatsStore } from '../stores/statsStore'
 import type { LogEntry } from '../types'
 
@@ -113,5 +114,24 @@ describe('StatsStore', () => {
     const state = useStatsStore.getState()
     expect(state.status).toBe('idle')
     expect(state.totalSteps).toBe(0)
+  })
+})
+
+describe('SkyStore', () => {
+  it('should track selection, hover hud, and observatory drawer state', () => {
+    useSkyStore.getState().clear()
+
+    useSkyStore.getState().selectNode('builder/forge')
+    useSkyStore.getState().setHoverHudNode('builder/forge', { x: 120, y: 220 })
+    useSkyStore.getState().openObservatory({ x: 300, y: 400 })
+
+    expect(useSkyStore.getState().selectedNodeId).toBe('builder/forge')
+    expect(useSkyStore.getState().hoverHudNodeId).toBe('builder/forge')
+    expect(useSkyStore.getState().hoverHudAnchor).toEqual({ x: 120, y: 220 })
+    expect(useSkyStore.getState().isObservatoryOpen).toBe(true)
+    expect(useSkyStore.getState().drawerOrigin).toEqual({ x: 300, y: 400 })
+
+    useSkyStore.getState().closeObservatory()
+    expect(useSkyStore.getState().isObservatoryOpen).toBe(false)
   })
 })

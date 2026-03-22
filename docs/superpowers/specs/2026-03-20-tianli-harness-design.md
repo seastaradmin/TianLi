@@ -1,299 +1,310 @@
 # TianLi Harness 设计文档
 
-**项目:** TianLi Harness - 天劫天演 Agent 治理沙箱
-**日期:** 2026-03-20
-**设计人:** Claude (via Superpowers brainstorming)
-**架构方案:** 方案 B - 轻量集成，复用 OpenClaw 会话
+**项目:** TianLi Harness - 天劫天演 Agent 治理沙箱  
+**版本:** 2026-03-21 修订版  
+**原始设计日期:** 2026-03-20  
+**本次更新:** 星空 Hero 分发、双来源 Hero Registry、结构化 SSE 星图控制台
 
 ---
 
-## 1. 概述
+## 1. 设计目标
 
-TianLi Harness 是一个基于 LangGraph 的 Agent 治理沙箱，为 OpenClaw 提供：
+TianLi Harness 不再只是一条单 Hero、单链路的治理流程，而是升级为一个可观测的 Hero 星图调度系统：
 
-- **动态 DNA 加载**：从 GitHub 动态拉取 System Prompt（"Hero DNA"）
-- **分层宪法天劫**：提前熔断偏离任务的工具调用
-- **天演自动优化**：熔断后自动生成 Prompt 修正建议，支持自动提交 GitHub
-
-核心目标：让 AI 编码更可控，减少语义漂移，自动迭代优化 System Prompt。
-
----
-
-## 2. 架构定位
-
-**TianLi Harness 作为 OpenClaw 进程内的 skill/harness 模块集成：**
-
-- ✅ 复用 OpenClaw 已有：会话管理、LLM 客户端、多会话能力
-- ✅ 新增：天劫拦截、天演优化、DNA 动态加载
-- ✅ 无冗余，性能高效
-- ✅ 符合龙虾"开源多会话"设计哲学
+- **Hero 星空**：每个 Hero 是一颗固定星体，具备能力标签、工具权限、优先级和星位坐标。
+- **自动分发**：任务进入后，先由规则筛候选，再由 LLM 参与排序，最后由规则校验收敛到 1 个或多个 Hero。
+- **任务光流**：任务与 Hero 之间的分发、执行、完成、熔断路径都通过发光流线表达。
+- **治理闭环**：每个被分发到的 Hero 依然运行 TianJie/TianYan 流程，保留早期退出和进化补丁能力。
+- **真实控制面**：前端不再依赖 mock 日志，而是消费后端结构化状态与事件。
 
 ---
 
-## 3. 目录结构
+## 2. 架构总览
 
-```
-tianli_harness/
-├── core/
-│   ├── state.py          # 状态定义（已完成）
-│   ├── graph.py          # LangGraph 控制流编排
-│   ├── interceptor.py    # 天劫流式监测器（分层宪法）
-│   └── optimizer.py      # 天演优化器（生成 Patch）
-├── dna/
-│   └── fetcher.py       # GitHub DNA 拉取器
-├── skills/
-│   ├── base.py          # Superpower 抽象基类（已完成）
-│   └── claw_proxy.py    # OpenClaw 强类型工具封装（已完成基础骨架）
-├── tests/
-│   └── test_harness.py  # 单元测试
-└── docs/
-    └── superpowers/
-        └── specs/
-            └── 2026-03-20-tianli-harness-design.md # 本文档
+### 2.1 分层结构
+
+```text
+User Task
+  -> Hero Registry (local authoritative, remote refreshable)
+  -> Task Dispatcher (rules -> optional LLM ranking -> rule convergence)
+  -> Selected Hero Runs (1..N)
+      -> Fetch DNA / local prompt
+      -> Reason
+      -> TianJie Audit
+      -> Execute Tool
+      -> TianYan Optimizer on early exit
+  -> Live Event Bus
+  -> Web Constellation Console
 ```
 
----
+### 2.2 关键原则
 
-## 4. 数据模型
-
-### 4.1 配置模型
-
-```python
-class HarnessConfig(BaseModel):
-    hero_id: str           # GitHub 上的英雄 MD 文件名
-    superpowers: List[str] # 需挂载的技能集，含 OpenClaw
-    drift_threshold: float # 语义偏移阈值，超过触发天劫 (default 0.4)
-    repo_owner: str        # GitHub 仓库拥有者 (default "agency-agency")
-    repo_name: str         # GitHub 仓库名 (default "agency-agents")
-    github_token: Optional[str] # GitHub API Token，用于自动提交
-```
-
-### 4.2 追踪模型
-
-```python
-class ActionTrace(BaseModel):
-    step: int             # 步骤序号
-    tool_name: str        # 工具名称
-    observation: str     # 执行结果
-    is_valid: bool        # 是否通过天劫检查 (default True)
-    audit_score: Optional[float] # L2 语义对齐分数
-```
-
-### 4.3 状态定义
-
-```python
-class TianLiState(TypedDict):
-    config: HarnessConfig
-    messages: Annotated[list, operator.add]
-    traces: Annotated[List[ActionTrace], operator.add]
-    current_status: str  # "running", "early_exit", "completed"
-    evolution_patch: str # 存放需要提交到 GitHub 的 Prompt 修正建议
-```
+1. **本地 Registry 是真相源**：远程来源只负责导入和刷新，不在任务热路径里做在线搜索。
+2. **混合路由而非纯模型路由**：模型只参与候选排序，不直接拥有最终派单权。
+3. **V1 任务级分发**：只在任务进入时分发，不做每个 tool call 的二次改派。
+4. **可回退**：显式指定 Hero 时优先 obey；未命中时回退到默认 Hero 组，不能出现“无人接单”。
+5. **控制台看真实状态**：前端只消费 `/api/status` 和 SSE，不再依赖演示模式。
 
 ---
 
-## 5. 分层宪法 - 天劫拦截
+## 3. 核心域模型
 
-### 5.1 L1 粗筛（同步，低成本）
+### 3.1 Hero Registry
 
-**检查项：**
+`HeroProfile`
+- `hero_id`
+- `display_name`
+- `description`
+- `tags`
+- `task_types`
+- `tools`
+- `linked_skills`
+- `capabilities`
+- `star_position`
+- `routing_priority`
+- `fallback_heroes`
+- `max_parallel_tasks`
+- `enabled`
+- `system_prompt`
+- `color`
+- `source`
 
-1. **重复检测**：连续 N 次调用同一个工具且参数相似 → 熔断
-2. **禁忌词检测**：输出包含配置的禁忌词 → 熔断
-3. **格式校验**：Tool Call JSON 格式不合法 → 熔断
-4. **空调用检测**：空参数或无意义调用 → 熔断
+`RemoteHeroSource`
+- `source_id`
+- `kind`
+- `url`
+- `owner`
+- `repo`
+- `hero_ids`
+- `enabled`
 
-**特点：** 不涉及深层语义，误判率极低，速度快。
+### 3.2 Dispatch
 
-### 5.2 L2 抽样深检（异步，LLM 调用）
+`TaskEnvelope`
+- `task_id`
+- `content`
+- `pinned_hero_ids`
+- `max_fanout`
+- `dispatch_mode`
+- `tags`
+- `created_at`
 
-**触发时机：**
-- 每次工具调用前（可配置抽样频率，默认每次都检）
-- 或每累计 500 token 抽样一次
+`DispatchDecision`
+- `task_id`
+- `strategy`
+- `selected_hero_ids`
+- `primary_hero_id`
+- `candidate_scores`
+- `selected_targets`
+- `reasoning`
+- `fallback_used`
+- `model_used`
 
-**检查逻辑：**
-```
-给定原始任务目标：{{target}}
-当前对话历史：{{history}}
-模型即将调用工具：{{tool_call}}
+### 3.3 Hero Run State
 
-请给当前即将执行的动作打分：
-- 1.0 分：完全对齐目标，动作合理
-- 0.0 分：完全偏离目标，动作毫无意义
+`ActionTrace`
+- `step`
+- `hero_id`
+- `tool_name`
+- `parameters`
+- `observation`
+- `is_valid`
+- `audit_score`
+- `audit_reason`
+- `audit_stage`
+- `timestamp`
 
-只返回一个 0.0 到 1.0 之间的浮点数分数，不要解释。
-```
-
-**判决：** `score < drift_threshold` → 触发熔断 (`early_exit`)
-
-**设计原则：** 监察模型只决定"偏不偏"，不决定"好不好"。大方向没偏，细节交给英雄发挥。
-
----
-
-## 6. LangGraph 控制流
-
-### 6.1 节点定义
-
-| 节点 | 职责 |
-|------|------|
-| `fetch_dna` | 根据 config 从 GitHub 拉取 Hero Prompt，作为 System Message 加入 state |
-| `reason` | 调用 LLM（复用 OpenClaw），绑定工具，必须开启流式输出 |
-| `audit` | 天劫拦截检查（L1 → L2），设置状态 |
-| `claw_exec` | 工具调用通过检查，转发给 OpenClaw 执行，结果追加到 trace |
-| `optimizer` | 熔断触发，进入天演优化，生成 evolution_patch，可选自动提交 |
-
-### 6.2 路由逻辑
-
-```python
-workflow.set_entry_point("fetch_dna")
-workflow.add_edge("fetch_dna", "reason")
-
-# 原因后：是否需要调用工具
-workflow.add_conditional_edges(
-    "reason",
-    route_after_reason,
-    {
-        "to_audit": "audit",     # 需要调用工具 → 进入天劫检查
-        "to_end": END           # 不需要调用 → 完成
-    }
-)
-
-# 检查后：通过/熔断
-workflow.add_conditional_edges(
-    "audit",
-    route_after_audit,
-    {
-        "execute": "claw_exec",      # 通过 → 执行工具
-        "trigger_early_exit": "optimizer" # 偏离 → 熔断进入天演
-    }
-)
-
-workflow.add_edge("claw_exec", "reason")       # 执行完回到推理
-workflow.add_edge("optimizer", END)            # 优化完结束，等待重启
-```
-
-### 6.3 持久化
-
-开启 LangGraph Checkpoint：
-```python
-memory = SqliteSaver.from_conn_string(":memory:")
-# 或持久化到文件：./tianli_harness/checkpoints.sqlite
-app = workflow.compile(checkpointer=memory)
-```
-
-支持从 checkpoint 恢复会话。
+`TianLiState`
+- `config`
+- `task`
+- `messages` (append-only)
+- `traces` (append-only)
+- `task_flow` (append-only)
+- `current_status`
+- `evolution_patch`
+- `pending_tool_call`
+- `pending_audit`
+- `dispatch_decision`
 
 ---
 
-## 7. 天演优化流程
+## 4. 自动分发设计
 
-### 7.1 触发条件
+### 4.1 Hero 来源
 
-`current_status == "early_exit"` → 进入 optimizer。
+V1 采用 **本地 + 远程** 双来源：
 
-### 7.2 优化 prompt
+- **本地 registry**
+  - 存放在仓库内 JSON 文件。
+  - 持有 Hero 权威元数据、默认 prompt、星位和优先级。
+- **远程来源**
+  - 支持 `github_dna` 和 `generic_json/skills_json`。
+  - 只在启动或手动刷新时导入到本地缓存。
+  - 网络失败不阻塞任务启动。
 
-```
-你是 TianLi Harness 天演优化器。
+### 4.2 混合路由
 
-原始 System Prompt 来自 GitHub:
----
-{{original_prompt}}
----
+路由顺序固定为：
 
-执行历史中，以下步骤触发了天劫熔断：
----
-{{failed_traces}}
----
+1. **任务归一化**
+   - 提取 `TaskEnvelope`
+   - 生成标签和关键词
+2. **规则筛候选**
+   - 只保留启用 Hero
+   - 命中 pinned Hero 则直接优先
+   - 依据 `tags/task_types/capabilities/tools` 计算匹配强度
+3. **LLM 排名**
+   - 仅在开启 `hybrid/llm` 且存在多个候选时启用
+   - 输入是候选集合，不允许跳出候选池
+4. **规则校验收敛**
+   - 限制 `max_fanout`
+   - 保证至少 1 个 Hero 被选中
+   - 未命中时回退到 `default_hero_ids`
 
-请总结失败原因，给出一份对原始 System Prompt 的修改建议 Patch。
-Patch 应当：
-1. 指出哪些地方需要修改
-2. 给出修改后的具体内容
-3. 解释为什么这样修改能防止未来再次触发同样的天劫
+### 4.3 多 Hero 语义
 
-请用 markdown 格式输出。
-```
+V1 允许 1 到 3 个 Hero 组成固定小组：
 
-### 7.3 输出与提交
-
-- **默认**：只将 Patch 存入 `state["evolution_patch"]`，返回给调用者
-- **配置了 `github_token`**：自动创建 commit 到原 GitHub 仓库
-  - 分支：`tianli/evolution-{timestamp}`
-  - commit message：`tianli: auto-evolution - fix early exit on [hero_id]`
-  - 可选创建 PR
-
----
-
-## 8. DNA 动态加载
-
-### 8.1 获取逻辑
-
-1. 构造 URL：`https://raw.githubusercontent.com/{owner}/{repo}/main/{hero_id}.md`
-2. HTTP GET 获取内容
-3. 缓存结果（可选 TTL）
-4. 作为 System Prompt 加入 state messages
-
-### 8.2 错误处理
-
-- 404：返回错误，提示检查 hero_id 和仓库配置
-- 网络错误：重试 → 失败后返回错误给调用者
+- 每个 Hero 拥有独立 run
+- 共用 parent task id
+- 共享星图任务节点
+- 各自拥有独立的 flow edge 和执行结果
 
 ---
 
-## 9. OpenClaw 集成
+## 5. TianJie / TianYan 闭环
 
-### 9.1 工具强类型封装
+### 5.1 TianJie
 
-所有 OpenClaw 工具参数使用 Pydantic v2 定义：
+L1 粗筛：
+- 重复调用检测
+- 禁忌词检测
+- 空参数检测
 
-- `ReadFileParams` - 读取文件
-- `GlobSearchParams` - 全局搜索
-- `GrepSearchParams` - 内容搜索
-- `BashExecuteParams` - 执行命令
-- `EditFileParams` - 编辑文件
-- `WriteFileParams` - 写入文件
+L2 深检：
+- 使用模型评分或启发式评分
+- 基于 `drift_threshold` 判断是否早退
 
-`OpenClawSkillManager` 统一管理：
-- `get_tools()` → 获取所有工具
-- `get_openai_functions()` → 转换为 OpenAI function format
-- `execute_tool()` → 转发执行到 OpenClaw
+### 5.2 TianYan
 
-### 9.2 进程内调用 vs HTTP
+当 `current_status == "early_exit"`：
 
-当前设计：进程内直接调用（方案 B），复用 OpenClaw 已有 LLM 客户端和会话管理，避免冗余。
-
----
-
-## 10. 依赖
-
-```
-langgraph>=0.1.0
-langchain>=0.1.0
-pydantic>=2.0.0
-GitPython>=3.1.0
-PyGithub>=2.1.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-pytest>=7.4.0
-pytest-cov>=4.1.0
-```
+- 汇总失败 trace
+- 生成一份 markdown patch 建议
+- 可选提交到 GitHub 新分支
+- **注意**：patch 单独写入 `tianli-evolution/*.patch.md`，而不是直接污染 hero prompt 文件
 
 ---
 
-## 11. 验收标准
+## 6. 后端接口与事件协议
 
-1. ✅ 能从 GitHub 动态拉取 Hero Prompt
-2. ✅ L1 粗筛能正确检测重复/格式错误并熔断
-3. ✅ L2 深检能正确计算语义对齐分数并在漂移时熔断
-4. ✅ 熔断后能生成正确的 Prompt 修改 Patch
-5. ✅ 配置 token 后能自动提交 Patch 到 GitHub
-6. ✅ LangGraph checkpoint 能正确保存恢复会话
-7. ✅ 所有 OpenClaw 工具都有 Pydantic 强类型定义
-8. ✅ 复用 OpenClaw 会话，无冗余性能浪费
+### 6.1 REST API
+
+`POST /api/run/start`
+- body:
+  - `task`
+  - `pinnedHeroIds?`
+  - `maxFanout?`
+  - `dispatchMode?`
+
+`POST /api/run/stop`
+- 停止当前任务
+
+`GET /api/status`
+- 返回当前星图快照
+
+`GET /api/heroes`
+- 返回 Hero 运行态快照
+
+`POST /api/skills/refresh`
+- 刷新远程来源并写入本地缓存
+
+### 6.2 SSE
+
+事件名：
+- `log`
+- `stats`
+- `sky_state`
+- `dispatch_decision`
+- `task_flow`
+- `run_summary`
+
+设计要求：
+- `sky_state` 可独立驱动前端渲染
+- 结构化事件用于细粒度动画和调试
+- 日志继续保留，但不再充当前端唯一状态源
 
 ---
 
-## 12. 下一步
+## 7. 星空前端设计
 
-设计评审通过后，由 `writing-plans` 生成详细实现计划，逐个模块开发。
+### 7.1 视图语义
+
+- **Hero 节点**
+  - 星体亮度映射负载
+  - 颜色映射角色类型
+  - 脉冲映射运行状态
+- **任务节点**
+  - 顶部漂浮的任务信号
+  - 展示任务状态和 dispatch mode
+- **光流边**
+  - `routing`: 冷色流线
+  - `running`: 更亮、更粗、更快
+  - `completed`: 稳定收束
+  - `failed/early_exit`: 红色失败光流
+
+### 7.2 实现约束
+
+- 保留 React + TypeScript + Vite
+- 使用 React Flow 自定义节点和 animated edges
+- 背景使用轻量 CSS 星空层
+- V1 只做自动分发和观察，不做拖拽编排
+
+---
+
+## 8. 验证策略
+
+### 8.1 Python
+
+- Dispatcher：候选筛选、fallback、pinned hero、fanout
+- Registry：本地/远程合并、缓存落盘、远程失败回退
+- Core graph：能走完 fetch -> reason -> audit -> exec 或 optimizer
+
+### 8.2 Web
+
+- 星体渲染
+- 任务节点渲染
+- SSE 驱动下状态更新
+- store 兼容行为
+- 生产 build 必须通过
+
+### 8.3 当前修订后的验收基线
+
+- `python3 -m pytest -q`
+- `npm run test:run`
+- `npm run build`
+- 直接调用 backend runner 能得到 dispatch decision 和 run summary
+
+---
+
+## 9. 本次修订解决的问题
+
+相较 2026-03-20 初版，本次修订补齐了以下缺口：
+
+- `reason` 节点不再是空占位
+- early-exit 后真正进入 optimizer
+- state 变为 append-only 语义，避免消息/trace 被覆盖
+- 后端不再跑 demo shell，而是运行真实 dispatcher + hero runs
+- 前端不再默认 mock 模式，而是消费真实 SSE 和状态快照
+- 引入星空 Hero 视图、任务光流、双来源 Hero Registry
+
+---
+
+## 10. 后续迭代
+
+下一阶段可以继续做：
+
+1. 手动改派与任务重试
+2. 更真实的 LLM routing 和 richer hero prompts
+3. 持久化 run history
+4. 更细粒度的 tool-level 光流

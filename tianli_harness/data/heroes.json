@@ -1,0 +1,123 @@
+{
+  "heroes": [
+    {
+      "hero_id": "architect/navigator",
+      "display_name": "Navigator",
+      "display_name_zh": "命枢",
+      "display_name_en": "Navigator",
+      "description": "Maps broad product or systems tasks into an execution path.",
+      "description_zh": "把宽泛的系统或产品任务整理成可执行路线。",
+      "description_en": "Maps broad product or systems tasks into an execution path.",
+      "tags": ["architecture", "routing", "planning", "system"],
+      "task_types": ["planning", "orchestration", "analysis"],
+      "tools": ["Read", "Glob", "Grep", "Bash"],
+      "linked_skills": ["tianli-harness", "find-skills"],
+      "capabilities": [
+        { "name": "architecture", "weight": 1.2 },
+        { "name": "dispatch", "weight": 1.4 }
+      ],
+      "star_position": { "x": 0.18, "y": 0.28 },
+      "routing_priority": 0.95,
+      "fallback_heroes": ["builder/forge", "auditor/sentinel"],
+      "max_parallel_tasks": 2,
+      "enabled": true,
+      "system_prompt": "You are Navigator, a systems hero who breaks broad tasks into safe implementation routes.",
+      "color": "#7dd3fc",
+      "source": "local"
+    },
+    {
+      "hero_id": "builder/forge",
+      "display_name": "Forge",
+      "display_name_zh": "锻星",
+      "display_name_en": "Forge",
+      "description": "Implements product and platform changes across code and runtime systems.",
+      "description_zh": "负责代码、平台与运行时系统的实现和落地。",
+      "description_en": "Implements product and platform changes across code and runtime systems.",
+      "tags": ["implementation", "backend", "frontend", "build"],
+      "task_types": ["coding", "integration", "refactor"],
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+      "linked_skills": ["browser-devtools-cli", "tianli-harness"],
+      "capabilities": [
+        { "name": "implement", "weight": 1.4 },
+        { "name": "build", "weight": 1.1 }
+      ],
+      "star_position": { "x": 0.64, "y": 0.2 },
+      "routing_priority": 0.9,
+      "fallback_heroes": ["architect/navigator", "auditor/sentinel"],
+      "max_parallel_tasks": 3,
+      "enabled": true,
+      "system_prompt": "You are Forge, a builder hero focused on implementation and integration.",
+      "color": "#f59e0b",
+      "source": "local"
+    },
+    {
+      "hero_id": "auditor/sentinel",
+      "display_name": "Sentinel",
+      "display_name_zh": "天衡",
+      "display_name_en": "Sentinel",
+      "description": "Guards quality, drift, and production risk with verification-first instincts.",
+      "description_zh": "负责质量、偏移与生产风险审视，以验证优先。",
+      "description_en": "Guards quality, drift, and production risk with verification-first instincts.",
+      "tags": ["review", "testing", "quality", "risk"],
+      "task_types": ["review", "testing", "verification"],
+      "tools": ["Read", "Glob", "Grep", "Bash"],
+      "linked_skills": ["tianli-harness", "web-design-guidelines"],
+      "capabilities": [
+        { "name": "review", "weight": 1.5 },
+        { "name": "test", "weight": 1.4 }
+      ],
+      "star_position": { "x": 0.42, "y": 0.68 },
+      "routing_priority": 0.88,
+      "fallback_heroes": ["builder/forge"],
+      "max_parallel_tasks": 2,
+      "enabled": true,
+      "system_prompt": "You are Sentinel, a quality-focused hero who audits behavior and risks.",
+      "color": "#34d399",
+      "source": "local"
+    },
+    {
+      "hero_id": "scribe/lumen",
+      "display_name": "Lumen",
+      "display_name_zh": "灵文",
+      "display_name_en": "Lumen",
+      "description": "Turns runs into crisp docs, specs, and reports.",
+      "description_zh": "把运行结果整理成清晰的文档、规格与报告。",
+      "description_en": "Turns runs into crisp docs, specs, and reports.",
+      "tags": ["docs", "spec", "report", "ux"],
+      "task_types": ["documentation", "design", "reporting"],
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+      "linked_skills": ["ui-design-review", "web-design-guidelines"],
+      "capabilities": [
+        { "name": "documentation", "weight": 1.3 },
+        { "name": "design", "weight": 1.1 }
+      ],
+      "star_position": { "x": 0.82, "y": 0.62 },
+      "routing_priority": 0.8,
+      "fallback_heroes": ["architect/navigator"],
+      "max_parallel_tasks": 2,
+      "enabled": true,
+      "system_prompt": "You are Lumen, a documentation and design hero who clarifies intent.",
+      "color": "#fda4af",
+      "source": "local"
+    }
+  ],
+  "remote_sources": [
+    {
+      "source_id": "agency-agents",
+      "kind": "agency_agents",
+      "owner": "seastaradmin",
+      "repo": "agency-agents",
+      "categories": ["design", "engineering", "product", "marketing", "project-management"],
+      "limit": 28,
+      "enabled": false
+    },
+    {
+      "source_id": "skills.sh",
+      "kind": "skills_directory",
+      "url": "https://skills.sh",
+      "pages": ["", "trending", "hot"],
+      "limit": 150,
+      "enabled": true
+    }
+  ]
+}

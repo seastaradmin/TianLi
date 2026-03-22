@@ -15,7 +15,7 @@ interface LogState {
   setFilter: (levels: LogLevel[]) => void
 }
 
-export const useLogStore = create<LogState>((set, get) => ({
+export const useLogStore = create<LogState>((set) => ({
   logs: [],
   autoScroll: true,
   filter: ['INFO', 'WARN', 'ERROR', 'DEBUG'],
@@ -46,10 +46,4 @@ export const useLogStore = create<LogState>((set, get) => ({
   setAutoScroll: (enabled) => set({ autoScroll: enabled }),
   
   setFilter: (levels) => set({ filter: levels }),
-  
-  // 辅助方法：获取过滤后的日志
-  getFilteredLogs: () => {
-    const { logs, filter } = get()
-    return logs.filter(log => filter.includes(log.level))
-  }
 }))

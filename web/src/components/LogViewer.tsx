@@ -2,10 +2,10 @@
 import React, { useRef, useEffect } from 'react'
 import { useLogStore } from '../stores/logStore'
 import { LogLine } from './LogLine'
-import type { LogEntry } from '../types'
+import type { LogEntry, Status } from '../types'
 
 interface LogViewerProps {
-  status: 'idle' | 'running' | 'completed' | 'error'
+  status: Status
   logEntries?: LogEntry[]  // 可选：外部传入日志（用于 SSE/WebSocket）
 }
 

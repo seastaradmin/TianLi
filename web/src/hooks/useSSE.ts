@@ -1,63 +1,59 @@
-// hooks/useSSE.ts
-import { useEffect, useRef, useCallback } from 'react'
-import type { LogEntry, Stats, Status } from '../types'
-
-interface UseSSEOptions {
-  onLog?: (log: LogEntry) => void
-  onStats?: (stats: Stats) => void
-  onStatus?: (status: Status) => void
-  enabled?: boolean
-}
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { DispatchDecision, LogEntry, RunSummary, SkySnapshot, Stats, UseSSEOptions } from '../types'
 
 export function useSSE(url: string, options: UseSSEOptions = {}) {
-  const { onLog, onStats, onStatus, enabled = true } = options
+  const { onLog, onStats, onSkyState, onDispatchDecision, onDeliveryReady, enabled = true } = options
   const eventSourceRef = useRef<EventSource | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
 
   const connect = useCallback(() => {
-    if (!enabled) return
-
-    try {
-      const eventSource = new EventSource(url)
-      eventSourceRef.current = eventSource
-
-      eventSource.addEventListener('log', (event) => {
-        if (onLog) {
-          const log: LogEntry = JSON.parse(event.data)
-          onLog(log)
-        }
-      })
-
-      eventSource.addEventListener('stats', (event) => {
-        if (onStats) {
-          const stats: Stats = JSON.parse(event.data)
-          onStats(stats)
-        }
-      })
-
-      eventSource.addEventListener('status', (event) => {
-        if (onStatus) {
-          const status: Status = JSON.parse(event.data)
-          onStatus(status)
-        }
-      })
-
-      eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error)
-        // SSE 会自动重连，这里可以添加重连逻辑或通知用户
-      }
-
-      console.log('SSE connected to:', url)
-    } catch (error) {
-      console.error('Failed to create EventSource:', error)
+    if (!enabled || eventSourceRef.current) {
+      return
     }
-  }, [url, onLog, onStats, onStatus, enabled])
+
+    const eventSource = new EventSource(url)
+    eventSourceRef.current = eventSource
+
+    eventSource.addEventListener('open', () => {
+      setIsConnected(true)
+    })
+
+    eventSource.addEventListener('log', (event) => {
+      onLog?.(JSON.parse(event.data) as LogEntry)
+    })
+
+    eventSource.addEventListener('stats', (event) => {
+      onStats?.(JSON.parse(event.data) as Stats)
+    })
+
+    eventSource.addEventListener('sky_state', (event) => {
+      onSkyState?.(JSON.parse(event.data) as SkySnapshot)
+    })
+
+    eventSource.addEventListener('dispatch_decision', (event) => {
+      onDispatchDecision?.(JSON.parse(event.data) as DispatchDecision)
+    })
+
+    eventSource.addEventListener('delivery_ready', (event) => {
+      onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
+    })
+
+    eventSource.addEventListener('run_summary', (event) => {
+      onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
+    })
+
+    eventSource.onerror = () => {
+      setIsConnected(false)
+    }
+  }, [enabled, onDeliveryReady, onDispatchDecision, onLog, onSkyState, onStats, url])
 
   const disconnect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
-      console.log('SSE disconnected')
+    if (!eventSourceRef.current) {
+      return
     }
+    eventSourceRef.current.close()
+    eventSourceRef.current = null
+    setIsConnected(false)
   }, [])
 
   useEffect(() => {
@@ -68,6 +64,6 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
   return {
     connect,
     disconnect,
-    isConnected: eventSourceRef.current?.readyState === EventSource.OPEN
+    isConnected,
   }
 }
