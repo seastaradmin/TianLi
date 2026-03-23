@@ -442,19 +442,49 @@ button {
   min-height: calc(100vh - 172px);
   height: calc(100vh - 172px);
   overflow: hidden;
-  border: 1px solid rgba(196, 218, 255, 0.08);
+  border: 1px solid rgba(214, 223, 228, 0.9);
   border-radius: 30px;
   background:
-    radial-gradient(circle at 18% 18%, rgba(166, 234, 255, 0.14), transparent 28%),
-    radial-gradient(circle at 76% 22%, rgba(255, 242, 192, 0.1), transparent 20%),
-    radial-gradient(circle at 64% 72%, rgba(192, 152, 255, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(8, 16, 30, 0.28), rgba(6, 12, 22, 0.12));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.98)),
+    radial-gradient(circle at 18% 18%, rgba(224, 255, 255, 0.48), transparent 34%),
+    radial-gradient(circle at 78% 26%, rgba(230, 230, 250, 0.42), transparent 30%);
   box-shadow:
-    inset 0 0 110px rgba(255, 255, 255, 0.03),
-    0 28px 96px rgba(4, 10, 20, 0.14);
+    inset 18px 18px 42px rgba(255, 255, 255, 0.96),
+    inset -22px -24px 54px rgba(225, 232, 236, 0.92),
+    0 24px 80px rgba(179, 191, 198, 0.18);
   --universe-pan-x: 0px;
   --universe-pan-y: 0px;
   --universe-zoom: 0.78;
+}
+
+.celestial-stage-aura {
+  position: absolute;
+  inset: auto;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 999px;
+  filter: blur(52px);
+  opacity: 0.72;
+}
+
+.celestial-stage-aura-cyan {
+  top: 8%;
+  left: 10%;
+  width: 34vw;
+  height: 24vw;
+  min-width: 280px;
+  min-height: 220px;
+  background: radial-gradient(circle, rgba(224, 255, 255, 0.9), rgba(224, 255, 255, 0));
+}
+
+.celestial-stage-aura-lavender {
+  right: 8%;
+  bottom: 10%;
+  width: 30vw;
+  height: 22vw;
+  min-width: 240px;
+  min-height: 200px;
+  background: radial-gradient(circle, rgba(230, 230, 250, 0.78), rgba(230, 230, 250, 0));
 }
 
 .cosmic-region-nav {
@@ -470,11 +500,11 @@ button {
 }
 
 .cosmic-region-nav-kicker {
-  color: rgba(255, 243, 199, 0.84);
+  color: rgba(98, 118, 127, 0.82);
   font-size: 0.62rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  text-shadow: 0 0 24px rgba(247, 223, 146, 0.2);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .cosmic-region-nav-list {
@@ -490,42 +520,49 @@ button {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  border: 1px solid rgba(196, 218, 255, 0.12);
+  border: 1px solid rgba(216, 224, 229, 0.96);
   border-radius: 999px;
-  background: rgba(12, 20, 34, 0.18);
+  background: rgba(255, 255, 255, 0.76);
   padding: 9px 11px;
-  color: rgba(237, 244, 255, 0.84);
+  color: rgba(76, 96, 107, 0.84);
   backdrop-filter: blur(12px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.1);
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  box-shadow:
+    8px 8px 20px rgba(198, 208, 214, 0.22),
+    -8px -8px 18px rgba(255, 255, 255, 0.92);
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease, box-shadow 220ms ease;
 }
 
 .cosmic-region-chip:hover,
 .cosmic-region-chip:focus-visible {
   outline: none;
   transform: translateY(-1px);
-  border-color: rgba(166, 234, 255, 0.22);
-  background: rgba(16, 26, 43, 0.28);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.14);
+  border-color: rgba(164, 220, 223, 0.92);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    12px 12px 24px rgba(198, 208, 214, 0.24),
+    -10px -10px 20px rgba(255, 255, 255, 0.98);
 }
 
 .cosmic-region-chip strong {
-  color: rgba(237, 244, 255, 0.94);
+  color: rgba(48, 69, 79, 0.92);
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.2;
 }
 
 .cosmic-region-chip span {
-  color: rgba(143, 163, 195, 0.9);
+  color: rgba(107, 124, 132, 0.86);
   font-size: 0.68rem;
   line-height: 1.2;
 }
 
 .cosmic-region-chip-active {
-  border-color: rgba(255, 243, 199, 0.28);
-  background: rgba(18, 29, 47, 0.4);
-  box-shadow: 0 0 0 1px rgba(255, 243, 199, 0.08), 0 14px 32px rgba(0, 0, 0, 0.14);
+  border-color: rgba(121, 214, 210, 0.84);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    inset 0 0 0 1px rgba(121, 214, 210, 0.18),
+    14px 14px 28px rgba(198, 208, 214, 0.24),
+    -10px -10px 20px rgba(255, 255, 255, 0.98);
 }
 
 .celestial-stage canvas {
@@ -562,12 +599,15 @@ button {
   gap: 4px;
   width: 100%;
   cursor: pointer;
-  border: 1px solid rgba(159, 179, 207, 0.12);
+  border: 1px solid rgba(216, 224, 229, 0.96);
   border-radius: 18px;
-  background: rgba(6, 12, 25, 0.44);
+  background: rgba(255, 255, 255, 0.88);
   padding: 12px 14px;
   text-align: left;
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+  box-shadow:
+    8px 8px 18px rgba(198, 208, 214, 0.18),
+    -8px -8px 18px rgba(255, 255, 255, 0.96);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
 
 .celestial-stage-fallback-task:hover,
@@ -576,14 +616,17 @@ button {
 .celestial-stage-fallback-hero:focus-visible {
   outline: none;
   transform: translateY(-1px);
-  border-color: rgba(247, 223, 146, 0.24);
-  background: rgba(8, 15, 30, 0.58);
+  border-color: rgba(121, 214, 210, 0.84);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    10px 10px 22px rgba(198, 208, 214, 0.22),
+    -10px -10px 20px rgba(255, 255, 255, 0.98);
 }
 
 .celestial-stage-fallback-task span,
 .celestial-stage-fallback-hero span,
 .celestial-stage-fallback-hero small {
-  color: rgba(237, 244, 255, 0.68);
+  color: rgba(102, 118, 126, 0.78);
 }
 
 .cosmic-label {
@@ -591,21 +634,24 @@ button {
   flex-direction: column;
   gap: 3px;
   min-width: 112px;
-  padding: 6px 8px;
-  color: rgba(244, 249, 255, 0.94);
+  padding: 7px 10px;
+  color: rgba(57, 76, 86, 0.94);
   text-align: center;
-  text-shadow: 0 0 18px rgba(8, 12, 24, 0.5);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 220ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .cosmic-label strong {
-  color: rgba(245, 250, 255, 0.98);
-  font-size: 0.9rem;
+  color: rgba(45, 65, 76, 0.96);
+  font-size: 0.84rem;
+  font-weight: 600;
   line-height: 1.3;
 }
 
 .cosmic-label span {
-  color: rgba(214, 229, 255, 0.72);
-  font-size: 0.7rem;
+  color: rgba(101, 116, 124, 0.84);
+  font-size: 0.68rem;
   line-height: 1.35;
 }
 
@@ -613,8 +659,13 @@ button {
   min-width: 168px;
 }
 
+.cosmic-label-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .cosmic-label-selected {
-  text-shadow: 0 0 28px rgba(255, 244, 198, 0.46);
+  color: rgba(34, 57, 67, 0.98);
 }
 
 .cosmic-region-label {
@@ -624,9 +675,9 @@ button {
   gap: 4px;
   min-width: 96px;
   padding: 4px 8px;
-  color: rgba(222, 235, 255, 0.52);
+  color: rgba(122, 136, 143, 0.74);
   text-align: center;
-  text-shadow: 0 0 18px rgba(8, 12, 24, 0.46);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.94);
 }
 
 .cosmic-region-label strong {
@@ -636,25 +687,13 @@ button {
 }
 
 .cosmic-region-label span {
-  color: rgba(190, 208, 238, 0.44);
+  color: rgba(136, 148, 154, 0.78);
   font-size: 0.62rem;
   line-height: 1.2;
 }
 
 .cosmic-region-label-active {
-  color: rgba(255, 246, 214, 0.92);
-  text-shadow: 0 0 28px rgba(255, 244, 198, 0.34);
-}
-
-.cosmic-flow-label {
-  border-radius: 999px;
-  border: 1px solid rgba(159, 179, 207, 0.14);
-  background: rgba(5, 10, 22, 0.56);
-  padding: 5px 10px;
-  color: rgba(237, 244, 255, 0.82);
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(18px);
+  color: rgba(62, 105, 112, 0.96);
 }
 
 .celestial-stage-nebula,
