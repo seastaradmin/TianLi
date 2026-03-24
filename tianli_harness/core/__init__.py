@@ -25,4 +25,14 @@ from tianli_harness.core.heroes import (
     get_all_predefined_heroes,
     get_heroes_by_category,
     get_heroes_by_task_type,
-    get_heroes_by_tool
+    get_heroes_by_tool,
+    get_predefined_hero,
+)
+
+from tianli_harness.core.memory import get_project_memory
+
+from tianli_harness.core.executors import get_orchestrator
+
+from tianli_harness.core.parallel import execute_parallel_tasks
+
+from tianli_harness.core.trend_researcher import TrendResearcher
