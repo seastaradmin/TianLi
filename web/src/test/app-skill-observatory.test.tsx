@@ -64,7 +64,28 @@ const snapshot: SkySnapshot = {
       judgmentNote: '',
       verdictStatus: null,
       deliverySummary: 'Forge 已提交首轮首页方案。',
-      deliveryDetails: [],
+      deliveryDetails: [
+        {
+          heroId: 'builder/forge',
+          displayName: 'Forge',
+          role: 'primary',
+          status: 'completed',
+          steps: 1,
+          summary: 'Forge 完成了首轮交付，并提交了首页大星系重构方案。',
+          skillDispatches: [
+            {
+              taskId: 'task-1',
+              heroId: 'builder/forge',
+              role: 'primary',
+              skillId: 'ui-design-review',
+              status: 'applied',
+              executionStatus: 'completed',
+              contribution: '检查了 web/src/App.tsx。主要视觉问题：首页仍保留说明文案和状态行。',
+              latencyMs: 14,
+            },
+          ],
+        },
+      ],
       skillDispatches: [
         {
           taskId: 'task-1',
@@ -89,7 +110,14 @@ const snapshot: SkySnapshot = {
       ],
       completedAt: new Date().toISOString(),
       history: [],
-      verdictHistory: [],
+      verdictHistory: [
+        {
+          verdict: 'approve',
+          note: '第一轮方向正确，继续推进。',
+          round: 1,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     },
   ],
   judgmentQueue: [],
@@ -143,63 +171,168 @@ describe('App galaxy and observatory drawer', () => {
     )
   })
 
-  it('selects a hero in galaxy view without opening the observatory drawer', async () => {
+  it('selects a session in galaxy view without opening the observatory backstage', async () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByText('Forge')).toBeInTheDocument()
+      expect(screen.getAllByText('把首页改成更纯粹的大星系舞台').length).toBeGreaterThan(0)
     })
 
-    fireEvent.click(screen.getByText('Forge'))
+    fireEvent.click(screen.getAllByRole('button', { name: /把首页改成更纯粹的大星系舞台/ })[0])
 
-    expect(screen.getByLabelText('节点速览')).toBeInTheDocument()
-    expect(screen.getByText(/当前天命：把首页改成更纯粹的大星系舞台/)).toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: '观测抽屉' })).not.toBeInTheDocument()
+    expect(useSkyStore.getState().selectedNodeId).toBe('task-1')
+    expect(screen.queryByRole('dialog', { name: '观测后台' })).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#galaxy')
   })
 
-  it('opens the observatory drawer from the edge trigger and falls back to the latest judgment task', async () => {
+  it('opens the observatory backstage from the edge trigger and falls back to the latest judgment task', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByLabelText('打开观测抽屉'))
+    fireEvent.click(screen.getByLabelText('打开观测后台'))
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '观测抽屉' })).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: '观测后台' })).toBeInTheDocument()
     })
 
-    const dialog = screen.getByRole('dialog', { name: '观测抽屉' })
-    expect(within(dialog).getByText('观测抽屉')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: '观测后台' })
+    expect(within(dialog).getByText('观测后台')).toBeInTheDocument()
     expect(within(dialog).getAllByText('把首页改成更纯粹的大星系舞台').length).toBeGreaterThan(0)
     expect(within(dialog).getByText('最终裁决')).toBeInTheDocument()
   })
 
-  it('keeps hero focus when opening the drawer after selecting a hero', async () => {
+  it('surfaces delivery results, region feedback, and governance state in the observatory', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByLabelText('打开观测后台'))
+
+    const dialog = await screen.findByRole('dialog', { name: '观测后台' })
+    expect(within(dialog).getByText('交付结果')).toBeInTheDocument()
+    expect(within(dialog).getByText('Forge 完成了首轮交付，并提交了首页大星系重构方案。')).toBeInTheDocument()
+    expect(within(dialog).getAllByText('星域反馈').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('天理主星域')).toBeInTheDocument()
+    expect(within(dialog).getAllByText('天劫与天演').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('本轮未触发天劫，暂无天演补丁。')).toBeInTheDocument()
+  })
+
+  it('keeps session focus when opening the backstage after selecting a session', async () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByText('Forge')).toBeInTheDocument()
+      expect(screen.getAllByText('把首页改成更纯粹的大星系舞台').length).toBeGreaterThan(0)
     })
 
-    fireEvent.click(screen.getByText('Forge'))
-    fireEvent.click(screen.getByLabelText('打开观测抽屉'))
+    fireEvent.click(screen.getAllByRole('button', { name: /把首页改成更纯粹的大星系舞台/ })[0])
+    fireEvent.click(screen.getByLabelText('打开观测后台'))
 
-    const dialog = await screen.findByRole('dialog', { name: '观测抽屉' })
-    expect(within(dialog).getAllByText('Forge').length).toBeGreaterThan(0)
-    expect(within(dialog).getAllByText('Builds the core experience.').length).toBeGreaterThan(0)
-    expect(within(dialog).queryByText('最终裁决')).not.toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog', { name: '观测后台' })
+    expect(within(dialog).getAllByText('把首页改成更纯粹的大星系舞台').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('Forge 完成了首轮交付，并提交了首页大星系重构方案。')).toBeInTheDocument()
+    expect(within(dialog).getByText('最终裁决')).toBeInTheDocument()
   })
 
-  it('closes the observatory drawer on Escape', async () => {
+  it('closes the observatory backstage on Escape', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByLabelText('打开观测抽屉'))
-    await screen.findByRole('dialog', { name: '观测抽屉' })
+    fireEvent.click(screen.getByLabelText('打开观测后台'))
+    await screen.findByRole('dialog', { name: '观测后台' })
 
     fireEvent.keyDown(document, { key: 'Escape' })
 
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: '观测抽屉' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: '观测后台' })).not.toBeInTheDocument()
     })
+  })
+
+  it('keeps a newly issued destiny focused after syncing the latest snapshot', async () => {
+    const issuedTitle = '验证天命是否被立刻激发'
+    const issuedSnapshot: SkySnapshot = {
+      ...snapshot,
+      status: 'running',
+      stats: {
+        ...snapshot.stats,
+        status: 'running',
+        activeTasks: 2,
+      },
+      heroGalaxy: snapshot.heroGalaxy.map((hero) => ({
+        ...hero,
+        status: 'running',
+        currentTaskId: 'task-ignite',
+        currentTaskIds: ['task-ignite'],
+      })),
+      activeTasks: [
+        {
+          ...snapshot.activeTasks[0],
+          taskId: 'task-ignite',
+          title: issuedTitle,
+          status: 'routing',
+          verdictRound: 0,
+          reasoning: 'Forge is taking the ignition lane.',
+          deliverySummary: '',
+          completedAt: null,
+        },
+        ...snapshot.activeTasks,
+      ],
+      judgmentQueue: [],
+      lightFlows: [
+        {
+          ...snapshot.lightFlows[0],
+          id: 'flow-ignite',
+          taskId: 'task-ignite',
+          source: 'task-ignite',
+          status: 'routing',
+          phase: 'routing',
+          round: 0,
+        },
+      ],
+      latestRunSummary: null,
+      logs: [],
+    }
+
+    let wasIssued = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith('/api/run/start') && init?.method === 'POST') {
+          wasIssued = true
+          return {
+            ok: true,
+            json: async () => ({
+              status: 'started',
+              taskId: 'task-ignite',
+              selectedHeroIds: ['builder/forge'],
+              primaryHeroId: 'builder/forge',
+            }),
+          }
+        }
+
+        if (url.endsWith('/api/status')) {
+          return {
+            ok: true,
+            json: async () => (wasIssued ? issuedSnapshot : snapshot),
+          }
+        }
+
+        return {
+          ok: true,
+          json: async () => snapshot,
+        }
+      }),
+    )
+
+    render(<App />)
+
+    const input = await screen.findByLabelText('输入新的天命')
+    fireEvent.change(input, { target: { value: issuedTitle } })
+    fireEvent.click(screen.getByRole('button', { name: '下达天命' }))
+
+    await waitFor(() => {
+      expect(useSkyStore.getState().selectedNodeId).toBe('task-ignite')
+    })
+
+    const dialog = await screen.findByRole('dialog', { name: '观测后台' })
+    expect(within(dialog).getAllByText(issuedTitle).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(`天命已激发：${issuedTitle}`).length).toBeGreaterThan(0)
   })
 
   it('toggles the interface language between Chinese and English', async () => {
@@ -209,7 +342,7 @@ describe('App galaxy and observatory drawer', () => {
     fireEvent.click(toggle)
 
     expect(screen.getByRole('button', { name: '切换为中文' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Open observatory drawer')).toBeInTheDocument()
+    expect(screen.getByLabelText('Open observatory backstage')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/Issue a new destiny/)).toBeInTheDocument()
   })
 })

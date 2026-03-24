@@ -14,17 +14,14 @@ npm install
 ### 开发模式
 
 ```bash
-# 仅启动前端（使用模拟数据）
+# 终端 1：启动后端
+python3 ../backend_server.py
+
+# 终端 2：启动前端
 npm run dev
-
-# 启动 SSE 测试服务器 + 前端（实时日志推送）
-npm run dev:all
-
-# 或手动启动测试服务器（另开终端）
-npm run server
 ```
 
-访问 http://localhost:1420 查看控制台
+访问 http://localhost:1421 查看控制台
 
 ## 📦 技术栈
 
@@ -141,7 +138,10 @@ Events:
 
 ```bash
 # .env
-VITE_SSE_URL=http://your-backend-server:3456/api/logs
+VITE_API_BASE=/api
+
+# 如需绕过本地代理，也可以直连：
+# VITE_API_BASE=http://127.0.0.1:1420/api
 ```
 
 ### WebSocket 备选
@@ -217,7 +217,7 @@ function App() {
 
 ```bash
 # 使用 curl 测试 SSE 连接
-curl -N http://localhost:3456/api/logs
+curl -N http://127.0.0.1:1420/api/logs
 
 # 或使用浏览器 DevTools → Network → EventSource
 ```

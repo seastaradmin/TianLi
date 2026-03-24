@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { DestinyConsole } from './components/DestinyConsole'
 import { GalaxyPage } from './components/galaxy/GalaxyPage'
 import { ObservatoryDrawer } from './components/observatory/ObservatoryDrawer'
 import { useSSE } from './hooks'
-import { t } from './i18n'
+import { formatStatusLabel, resolveHeroDisplayName, t } from './i18n'
 import type { Language, UiAnchor } from './types'
 import { useLogStore, useSkyStore, useStatsStore } from './stores'
 import type { HeroState, SkySnapshot, SkillDispatchState, TaskState } from './types'
+import { apiUrl } from './utils/api'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:1420'
-const SSE_URL = `${API_BASE}/api/logs`
+const SSE_URL = apiUrl('/logs')
 const LANGUAGE_STORAGE_KEY = 'tianli-language'
 
 type SkillTraceState = SkillDispatchState & { taskTitle?: string }
@@ -88,6 +88,8 @@ function App() {
   const [taskInput, setTaskInput] = useState('')
   const [pinnedHeroInput, setPinnedHeroInput] = useState('')
   const [judgmentInput, setJudgmentInput] = useState('')
+  const [pendingIssuedTaskId, setPendingIssuedTaskId] = useState<string | null>(null)
+  const [autoFocusTarget, setAutoFocusTarget] = useState<{ nodeId: string; token: number } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [language, setLanguage] = useState<Language>(() => {
     if (typeof window === 'undefined') {
@@ -107,10 +109,17 @@ function App() {
     },
   })
 
+  const syncSkySnapshot = useCallback(async () => {
+    const snapshot = await fetchJson<SkySnapshot>(apiUrl('/status'))
+    hydrateSky(snapshot)
+    hydrateStats(snapshot.stats)
+    return snapshot
+  }, [hydrateSky, hydrateStats])
+
   useEffect(() => {
     const loadSnapshot = async () => {
       try {
-        const snapshot = await fetchJson<SkySnapshot>(`${API_BASE}/api/status`)
+        const snapshot = await fetchJson<SkySnapshot>(apiUrl('/status'))
         hydrateSky(snapshot)
         hydrateStats(snapshot.stats)
         clearLogs()
@@ -143,27 +152,39 @@ function App() {
       return
     }
 
+    const isPendingIssuedSelection = pendingIssuedTaskId === selectedNodeId
     const nodeStillExists =
       heroes.some((hero) => hero.heroId === selectedNodeId) || tasks.some((task) => task.taskId === selectedNodeId)
 
-    if (!nodeStillExists) {
+    if (!nodeStillExists && !isPendingIssuedSelection) {
       selectNode(null)
       setHoverHudNode(null, null)
     }
-  }, [heroes, selectedNodeId, selectNode, setHoverHudNode, tasks])
+  }, [heroes, pendingIssuedTaskId, selectedNodeId, selectNode, setHoverHudNode, tasks])
 
   useEffect(() => {
     if (!hoverHudNodeId) {
       return
     }
 
+    const isPendingIssuedHover = pendingIssuedTaskId === hoverHudNodeId
     const nodeStillExists =
       heroes.some((hero) => hero.heroId === hoverHudNodeId) || tasks.some((task) => task.taskId === hoverHudNodeId)
 
-    if (!nodeStillExists) {
+    if (!nodeStillExists && !isPendingIssuedHover) {
       setHoverHudNode(null, null)
     }
-  }, [heroes, hoverHudNodeId, setHoverHudNode, tasks])
+  }, [heroes, hoverHudNodeId, pendingIssuedTaskId, setHoverHudNode, tasks])
+
+  useEffect(() => {
+    if (!pendingIssuedTaskId) {
+      return
+    }
+
+    if (tasks.some((task) => task.taskId === pendingIssuedTaskId)) {
+      setPendingIssuedTaskId(null)
+    }
+  }, [pendingIssuedTaskId, tasks])
 
   const selectedHero = heroes.find((hero) => hero.heroId === selectedNodeId) ?? null
   const selectedTask = tasks.find((task) => task.taskId === selectedNodeId) ?? null
@@ -189,6 +210,26 @@ function App() {
         .map((skill) => ({ ...skill, taskTitle: focusTask?.title }))
   const recentLogs = useMemo(() => logs.slice(-10).reverse(), [logs])
   const activeJudgmentTarget = focusTask?.status === 'judgment_pending' ? focusTask : fallbackJudgmentTask
+  const destinyConsoleTask =
+    (pendingIssuedTaskId ? tasks.find((task) => task.taskId === pendingIssuedTaskId) ?? null : null) ?? selectedTask
+  const destinyConsoleHero =
+    destinyConsoleTask?.primaryHeroId
+      ? heroes.find((hero) => hero.heroId === destinyConsoleTask.primaryHeroId) ?? null
+      : null
+  const destinyConsoleSummary = destinyConsoleTask
+    ? {
+        title: destinyConsoleTask.title,
+        subtitle: `${formatStatusLabel(destinyConsoleTask.status, language)} · ${
+          destinyConsoleTask.primaryHeroId
+            ? t(language, 'primary_hero', {
+                hero: destinyConsoleHero
+                  ? resolveHeroDisplayName(destinyConsoleHero, language)
+                  : destinyConsoleTask.primaryHeroId,
+              })
+            : t(language, 'routing_hero')
+        }`,
+      }
+    : null
 
   const handleIssueDestiny = async () => {
     const content = taskInput.trim()
@@ -198,7 +239,7 @@ function App() {
 
     setIsSubmitting(true)
     try {
-      const response = await fetchJson<{ taskId: string }>(`${API_BASE}/api/run/start`, {
+      const response = await fetchJson<{ taskId: string }>(apiUrl('/run/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,11 +254,31 @@ function App() {
         }),
       })
 
+      setPendingIssuedTaskId(response.taskId)
+      setAutoFocusTarget({ nodeId: response.taskId, token: Date.now() })
+
+      try {
+        await syncSkySnapshot()
+      } catch (snapshotError) {
+        console.warn('[App] failed to sync sky snapshot after issuing destiny', snapshotError)
+      }
+
       selectNode(response.taskId)
-      setHoverHudNode(response.taskId, hoverHudAnchor)
+      setHoverHudNode(response.taskId, null)
+      openObservatory(null)
       setTaskInput('')
       setJudgmentInput('')
+      addLog({
+        id: `start-${Date.now()}`,
+        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
+        level: 'INFO',
+        module: 'UI',
+        msg: t(language, 'destiny_ignited', { title: content }),
+        msgZh: t('zh', 'destiny_ignited', { title: content }),
+        msgEn: t('en', 'destiny_ignited', { title: content }),
+      })
     } catch (error) {
+      setPendingIssuedTaskId(null)
       addLog({
         id: `start-${Date.now()}`,
         time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
@@ -239,7 +300,7 @@ function App() {
 
     setIsSubmitting(true)
     try {
-      await fetchJson(`${API_BASE}/api/run/verdict`, {
+      await fetchJson(apiUrl('/run/verdict'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,7 +329,7 @@ function App() {
 
   const handleRefreshSkills = async () => {
     try {
-      await fetchJson(`${API_BASE}/api/skills/refresh`, { method: 'POST' })
+      await fetchJson(apiUrl('/skills/refresh'), { method: 'POST' })
       addLog({
         id: `refresh-${Date.now()}`,
         time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
@@ -322,6 +383,7 @@ function App() {
         selectedNodeId={selectedNodeId}
         hoverHudNodeId={hoverHudNodeId}
         hoverHudAnchor={hoverHudAnchor}
+        autoFocusTarget={autoFocusTarget}
         isConnected={isConnected}
         isObservatoryOpen={isObservatoryOpen}
         language={language}
@@ -359,6 +421,7 @@ function App() {
         taskInput={taskInput}
         pinnedHeroInput={pinnedHeroInput}
         isSubmitting={isSubmitting}
+        statusSummary={destinyConsoleSummary}
         onTaskInputChange={setTaskInput}
         onPinnedHeroInputChange={setPinnedHeroInput}
         onIssueDestiny={handleIssueDestiny}

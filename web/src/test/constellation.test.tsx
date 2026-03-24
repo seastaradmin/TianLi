@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react'
 import { ConstellationView } from '../components/constellation/ConstellationView'
 
 describe('ConstellationView', () => {
-  it('renders hero stars and destiny cores', () => {
+  it('renders active session cores on the stage', () => {
     const onSelectNode = vi.fn()
 
     render(
@@ -64,6 +64,31 @@ describe('ConstellationView', () => {
             history: [],
             verdictHistory: [],
           },
+          {
+            taskId: 'task-2',
+            title: 'Archived session should stay off stage',
+            status: 'accepted',
+            pinnedHeroIds: [],
+            selectedHeroIds: ['builder/forge'],
+            primaryHeroId: 'builder/forge',
+            consultHeroIds: [],
+            candidateHeroIds: ['builder/forge'],
+            maxFanout: 1,
+            dispatchMode: 'hybrid',
+            collaborationMode: 'primary_consult',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            reasoning: 'Already completed.',
+            verdictRound: 0,
+            judgmentNote: '',
+            verdictStatus: 'approved',
+            deliverySummary: 'Archived summary',
+            deliveryDetails: [],
+            skillDispatches: [],
+            completedAt: new Date().toISOString(),
+            history: [],
+            verdictHistory: [],
+          },
         ]}
         flows={[
           {
@@ -89,9 +114,7 @@ describe('ConstellationView', () => {
 
     expect(screen.getByLabelText('Destiny galaxy')).toBeInTheDocument()
     expect(screen.getByText('Round 2 · Destiny Core')).toBeInTheDocument()
-    expect(screen.getByText('Forge')).toBeInTheDocument()
     expect(screen.getByText(/Implement constellation dispat/i)).toBeInTheDocument()
-    expect(screen.getByText(/Running · 1 skill/i)).toBeInTheDocument()
-    expect(screen.getByTitle('ui-design-review')).toBeInTheDocument()
+    expect(screen.queryByText('Archived session should stay off stage')).not.toBeInTheDocument()
   })
 })

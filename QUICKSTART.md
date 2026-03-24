@@ -43,10 +43,14 @@ python3 test_full_workflow.py
 ### 3. 启动 Web 控制台
 
 ```bash
+# 终端 1：后端
+python3 backend_server.py
+
+# 终端 2：前端
 cd web
 npm install
 npm run dev
-# 访问 http://localhost:1420
+# 访问 http://localhost:1421
 ```
 
 ## 核心概念

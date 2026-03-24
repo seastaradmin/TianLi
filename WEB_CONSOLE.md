@@ -19,6 +19,10 @@
 ## 快速开始
 
 ```bash
+# 终端 1：后端
+python3 backend_server.py
+
+# 终端 2：前端
 cd web
 
 # 安装依赖
@@ -26,6 +30,8 @@ npm install
 
 # 开发模式（网页）
 npm run dev
+
+# 访问 http://localhost:1421
 
 # 构建桌面应用
 npm run tauri build
