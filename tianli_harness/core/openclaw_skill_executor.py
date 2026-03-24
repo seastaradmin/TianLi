@@ -27,18 +27,33 @@ class OpenClawSkillExecutor:
             Result dict with success status and output
         """
         try:
-            # Use npx skills to run the skill
-            # The skill will be invoked automatically by OpenClaw when needed
-            cmd = ["npx", "skills", "run", skill_name]
+            # Method 1: Try OpenClaw CLI first
+            cmd = ["openclaw", "skill", "run", skill_name]
             
-            # Add parameters as needed
-            # For pptx skill, we might need to pass input/output paths
-            if "input" in params:
-                cmd.extend(["--input", params["input"]])
-            if "output" in params:
-                cmd.extend(["--output", params["output"]])
-            if "action" in params:
-                cmd.extend(["--action", params["action"]])
+            # Add parameters
+            for key, value in params.items():
+                cmd.extend([f"--{key}", str(value)])
+            
+            result = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self.working_dir
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode == 0:
+                return {
+                    "success": True,
+                    "stdout": stdout.decode("utf-8"),
+                    "stderr": stderr.decode("utf-8")
+                }
+            
+            # Method 2: Fallback to npx skills
+            cmd = ["npx", "skills", "run", skill_name]
+            for key, value in params.items():
+                cmd.extend([f"--{key}", str(value)])
             
             result = await asyncio.create_subprocess_exec(
                 *cmd,
