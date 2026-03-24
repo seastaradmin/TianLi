@@ -20,69 +20,83 @@ const LiveLogs: React.FC = () => {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 模拟实时日志（稍后替换为 WebSocket 或 SSE）
-    const mockLogs: LogEntry[] = [
-      {
-        id: '1',
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: '任务开始：生成产品宣讲 PPT',
-        task_id: 'ppt-task-001',
-        hero_id: 'ppt-creator-hero',
-        stage: 'init'
-      },
-      {
-        id: '2',
-        timestamp: new Date(Date.now() - 1000).toISOString(),
-        level: 'success',
-        message: 'Hero 选择完成：ppt-creator-hero (分数：8.15)',
-        task_id: 'ppt-task-001',
-        hero_id: 'ppt-creator-hero',
-        stage: 'dispatch'
-      },
-      {
-        id: '3',
-        timestamp: new Date(Date.now() - 2000).toISOString(),
-        level: 'info',
-        message: '调用 LLM (Doubao-Seed-2.0-Code)',
-        task_id: 'ppt-task-001',
-        stage: 'llm'
-      },
-      {
-        id: '4',
-        timestamp: new Date(Date.now() - 3000).toISOString(),
-        level: 'success',
-        message: 'L1 审计通过 (无违规)',
-        task_id: 'ppt-task-001',
-        stage: 'audit_l1'
-      },
-      {
-        id: '5',
-        timestamp: new Date(Date.now() - 4000).toISOString(),
-        level: 'success',
-        message: 'L2 审计通过 (分数：0.92)',
-        task_id: 'ppt-task-001',
-        stage: 'audit_l2'
-      },
-      {
-        id: '6',
-        timestamp: new Date(Date.now() - 5000).toISOString(),
-        level: 'info',
-        message: '生成 PPT 文件：tianli_presentation.pptx',
-        task_id: 'ppt-task-001',
-        stage: 'generation'
-      },
-      {
-        id: '7',
-        timestamp: new Date(Date.now() - 6000).toISOString(),
-        level: 'success',
-        message: '任务完成 (耗时：1.18s)',
-        task_id: 'ppt-task-001',
-        stage: 'complete'
+    // 从后端 API 获取日志
+    const fetchLogs = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/logs?limit=100');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        setLogs(data);
+      } catch (error) {
+        console.error('获取日志失败:', error);
+        // Fallback: 使用 mock 数据
+        const mockLogs: LogEntry[] = [
+          {
+            id: '1',
+            timestamp: new Date().toISOString(),
+            level: 'info',
+            message: '任务开始：生成产品宣讲 PPT',
+            task_id: 'ppt-task-001',
+            hero_id: 'ppt-creator-hero',
+            stage: 'init'
+          },
+          {
+            id: '2',
+            timestamp: new Date(Date.now() - 1000).toISOString(),
+            level: 'success',
+            message: 'Hero 选择完成：ppt-creator-hero (分数：8.15)',
+            task_id: 'ppt-task-001',
+            hero_id: 'ppt-creator-hero',
+            stage: 'dispatch'
+          },
+          {
+            id: '3',
+            timestamp: new Date(Date.now() - 2000).toISOString(),
+            level: 'info',
+            message: '调用 LLM (Doubao-Seed-2.0-Code)',
+            task_id: 'ppt-task-001',
+            stage: 'llm'
+          },
+          {
+            id: '4',
+            timestamp: new Date(Date.now() - 3000).toISOString(),
+            level: 'success',
+            message: 'L1 审计通过 (无违规)',
+            task_id: 'ppt-task-001',
+            stage: 'audit_l1'
+          },
+          {
+            id: '5',
+            timestamp: new Date(Date.now() - 4000).toISOString(),
+            level: 'success',
+            message: 'L2 审计通过 (分数：0.92)',
+            task_id: 'ppt-task-001',
+            stage: 'audit_l2'
+          },
+          {
+            id: '6',
+            timestamp: new Date(Date.now() - 5000).toISOString(),
+            level: 'info',
+            message: '生成 PPT 文件：tianli_presentation.pptx',
+            task_id: 'ppt-task-001',
+            stage: 'generation'
+          },
+          {
+            id: '7',
+            timestamp: new Date(Date.now() - 6000).toISOString(),
+            level: 'success',
+            message: '任务完成 (耗时：1.18s)',
+            task_id: 'ppt-task-001',
+            stage: 'complete'
+          }
+        ];
+        setLogs(mockLogs);
       }
-    ];
+    };
 
-    setLogs(mockLogs);
+    fetchLogs();
   }, []);
 
   useEffect(() => {
