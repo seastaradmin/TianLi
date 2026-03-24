@@ -64,14 +64,14 @@ async def test_real_ppt_generation():
     tracker.log(
         stage="1. 任务输入",
         action="用户请求",
-        details="生成天理产品宣讲 PPT，包含：产品介绍、特性、优势、E2E 测试结果、行动计划"
+        details="生成天理产品宣讲 PPT"
     )
     
     # 加载配置
     tracker.log(
         stage="2. 配置加载",
         action="加载 YAML 配置",
-        details="配置 ppt-creator-hero、审计规则、执行器"
+        details="配置 ppt-creator-hero"
     )
     
     config = load_config_from_string("""
@@ -86,7 +86,6 @@ hero:
 tianjie:
   drift_threshold: 0.4
   l2_sample_ratio: 0.3
-  repetition_threshold: 3
 
 dispatch:
   mode: "hybrid"
@@ -96,7 +95,7 @@ dispatch:
     tracker.log(
         stage="2.1 配置完成",
         hero="ppt-creator-hero",
-        details=f"L2 采样率：{config.l2_sample_ratio}, 天劫阈值：{config.drift_threshold}"
+        details=f"L2 采样率：{config.l2_sample_ratio}"
     )
     
     # 创建 Doubao 客户端
@@ -117,20 +116,20 @@ dispatch:
         details="Doubao-Seed-2.0-Code 模型"
     )
     
-    # 创建执行器
+    # 创建执行器 - 保存到项目目录
     tracker.log(
         stage="4. 执行器初始化",
         action="创建 LocalExecutor",
         details="用于文件读写和 PPT 生成"
     )
     
-    import tempfile
-    temp_dir = tempfile.mkdtemp()
-    executor = LocalExecutor(temp_dir)
+    output_dir = Path(__file__).parent.parent / "generated_ppts"
+    output_dir.mkdir(exist_ok=True)
+    executor = LocalExecutor(str(output_dir))
     
     tracker.log(
         stage="4.1 执行器就绪",
-        details=f"工作目录：{temp_dir}"
+        details=f"输出目录：{output_dir.absolute()}"
     )
     
     # 创建 HarnessEngine
@@ -149,7 +148,7 @@ dispatch:
     
     tracker.log(
         stage="5.1 引擎就绪",
-        details="HarnessEngine 创建成功，准备执行任务"
+        details="HarnessEngine 创建成功"
     )
     
     # 执行任务
@@ -165,14 +164,7 @@ dispatch:
     try:
         result = await engine.run(
             "ppt-task-tianli-001",
-            "生成天理产品宣讲 PPT，包含以下内容：\n"
-            "1. 封面（TianLi Harness - 天理 Harness）\n"
-            "2. 问题（现有 AI 工具的痛点）\n"
-            "3. 解决方案（天理的核心特性）\n"
-            "4. 产品特性（19 个 Heroes、天劫审计、天演进化）\n"
-            "5. E2E 测试结果（100% 通过率）\n"
-            "6. 行动计划（如何开始使用）\n"
-            "7. 结束页（Q&A）"
+            "生成天理产品宣讲 PPT，包含：封面、问题、解决方案、特性、E2E 测试、行动计划、结束页"
         )
         
         duration = time.time() - start
@@ -182,26 +174,25 @@ dispatch:
             details=f"耗时：{duration:.2f}秒，状态：{result.get('current_status', 'unknown')}"
         )
         
-        # 记录 Hero 协作过程
-        tracker.log(
-            stage="7. Hero 协作过程",
-            hero="ppt-creator-hero",
-            action="多步骤执行",
-            details="""
-实际执行流程:
-1. ppt-creator-hero 接收任务 → 分析 PPT 需求
-2. 调用 LLM (Doubao) → 生成 PPT 内容大纲
-3. 天劫审计 (L1+L2) → 质量检查
-4. 执行工具 → 使用 python-pptx 生成 .pptx 文件
-5. QA 审查 → 检查 PPT 质量
-6. 输出 → 保存 .pptx 文件"""
-        )
-        
-        tracker.log(
-            stage="8. 结果输出",
-            action="保存 PPT 文件",
-            details=f"输出目录：{temp_dir}"
-        )
+        # 列出文件
+        ppt_files = list(output_dir.glob("*.pptx"))
+        if ppt_files:
+            tracker.log(
+                stage="7. PPT 文件生成",
+                action="找到生成的文件",
+                details=""
+            )
+            print(f"\n📄 生成的 PPT 文件:")
+            for ppt_file in ppt_files:
+                print(f"   ✅ {ppt_file.absolute()} ({ppt_file.stat().st_size} bytes)")
+        else:
+            tracker.log(
+                stage="7. 检查输出",
+                action="查找 .pptx 文件",
+                details=f"目录内容：{list(output_dir.iterdir())}"
+            )
+            print(f"\n⚠️  未找到 .pptx 文件")
+            print(f"   目录内容：{list(output_dir.iterdir())}")
         
         # 打印总结
         print("\n" + "="*70)
@@ -210,8 +201,14 @@ dispatch:
         print(f"总耗时：{duration:.2f}秒")
         print(f"参与 Hero: ppt-creator-hero")
         print(f"LLM: Doubao-Seed-2.0-Code")
-        print(f"调用链路：User → HarnessEngine → ppt-creator-hero → Doubao LLM → python-pptx → .pptx")
-        print(f"\n✅ 天理系统成功执行 PPT 生成任务！")
+        print(f"输出目录：{output_dir.absolute()}")
+        print(f"状态：{result.get('current_status')}")
+        
+        if ppt_files:
+            print(f"\n✅ 天理系统成功生成 PPT！")
+        else:
+            print(f"\n⚠️  任务完成但未找到 .pptx 文件")
+            print(f"   可能 pptx skill 未正确调用，需要进一步调试")
         
     except Exception as e:
         duration = time.time() - start
@@ -229,7 +226,6 @@ dispatch:
     
     import json
     report_file = Path("docs/REAL_PPT_EXECUTION_REPORT.json")
-    report_file.parent.mkdir(parents=True, exist_ok=True)
     with open(report_file, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     
