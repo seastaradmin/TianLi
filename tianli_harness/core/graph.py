@@ -23,6 +23,7 @@ from tianli_harness.core.state import ActionTrace, HarnessConfig, TaskEnvelope, 
 from tianli_harness.core.heroes import get_predefined_hero, PREDEFINED_HEROES
 from tianli_harness.core.metrics import get_metrics_collector
 from tianli_harness.core.audit_rules import AuditRuleEngine, AuditRuleTemplate
+from tianli_harness.core.db_connector import get_feedback_database
 from tianli_harness.dna.fetcher import DNAFetcher
 from tianli_harness.skills.claw_proxy import OpenClawSkillManager
 
@@ -456,6 +457,7 @@ class HarnessEngine:
             "dispatch_decision": None,
         }
         
+        dispatch_id = None
         try:
             result = await self.app.ainvoke(initial_state, config={"configurable": {"thread_id": thread_id}})
             
@@ -468,8 +470,57 @@ class HarnessEngine:
                 if result.get("evolution_patch"):
                     self.metrics.record_evolution_patch()
             
+            # Log to database
+            try:
+                db = get_feedback_database()
+                
+                # Get dispatch_id from state if available
+                dispatch_decision = result.get("dispatch_decision")
+                if dispatch_decision and hasattr(dispatch_decision, 'dispatch_id'):
+                    dispatch_id = dispatch_decision.dispatch_id
+                
+                # Log task result
+                db.log_task_result(
+                    task_id=thread_id,
+                    dispatch_id=dispatch_id,
+                    status=result.get("current_status", "unknown"),
+                    current_status=result.get("current_status"),
+                    execution_time_ms=latency_ms,
+                    l1_passed=result.get("l1_passed"),
+                    l2_passed=result.get("l2_passed"),
+                    l2_score=result.get("l2_score"),
+                    violations=result.get("violations"),
+                    evolution_patch=result.get("evolution_patch")
+                )
+                
+                # Update hero performance
+                if self.config.hero_id:
+                    db.update_hero_performance(
+                        hero_id=self.config.hero_id,
+                        success=result.get("current_status") == "completed",
+                        execution_time_ms=latency_ms,
+                        l2_score=result.get("l2_score")
+                    )
+                
+            except Exception as e:
+                logger.warning(f"Failed to log to database: {e}")
+            
             return result
             
         except Exception as e:
             self.metrics.record_early_exit(f"Error: {str(e)}")
+            
+            # Log error to database
+            try:
+                db = get_feedback_database()
+                db.log_task_result(
+                    task_id=thread_id,
+                    dispatch_id=dispatch_id,
+                    status="failed",
+                    current_status="error",
+                    execution_time_ms=int((time.time() - start_time) * 1000)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log error to database: {e}")
+            
             raise

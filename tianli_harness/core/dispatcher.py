@@ -17,6 +17,7 @@ from tianli_harness.core.state import (
     HeroProfile,
     TaskEnvelope,
 )
+from tianli_harness.core.db_connector import get_feedback_database
 
 
 TOOL_KEYWORDS: Dict[str, Sequence[str]] = {
@@ -99,6 +100,28 @@ class TaskDispatcher:
             fallback_used=fallback_used,
             model_used=self.config.router_model if self.router_client and task.dispatch_mode in {"hybrid", "llm"} else None,
         )
+        
+        # Log to database
+        try:
+            db = get_feedback_database()
+            dispatch_id = db.log_dispatch_decision(
+                task_id=task.task_id,
+                session_id=None,  # Can be passed from context
+                user_input=content,
+                task_tags=task.tags,
+                selected_hero_ids=selected_hero_ids,
+                primary_hero_id=decision.primary_hero_id,
+                consult_hero_ids=decision.consult_hero_ids,
+                candidate_scores=candidate_scores,
+                dispatch_reason=decision.reasoning,
+                dispatch_mode=task.dispatch_mode,
+                collaboration_mode=task.collaboration_mode,
+                fallback_used=fallback_used
+            )
+            decision.dispatch_id = dispatch_id  # Store for later use
+        except Exception as e:
+            logger.warning(f"Failed to log dispatch decision: {e}")
+        
         return task, decision, selected_profiles
 
     def normalize_task(
