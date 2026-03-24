@@ -1,10 +1,10 @@
 {
   "summary": {
-    "total": 32,
-    "passed": 28,
-    "failed": 4,
-    "pass_rate": "87.5%",
-    "duration_seconds": 0.053628
+    "total": 40,
+    "passed": 40,
+    "failed": 0,
+    "pass_rate": "100.0%",
+    "duration_seconds": 18.131644
   },
   "tests": [
     {
@@ -12,224 +12,280 @@
       "passed": true,
       "details": "文件：/Users/ping/Desktop/TianLi/requirements.txt",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646194"
+      "timestamp": "2026-03-24T13:49:13.888669"
     },
     {
       "test": "模块 core/__init__.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646251"
+      "timestamp": "2026-03-24T13:49:13.888690"
     },
     {
       "test": "模块 core/heroes.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646280"
+      "timestamp": "2026-03-24T13:49:13.888703"
     },
     {
       "test": "模块 core/graph.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646291"
+      "timestamp": "2026-03-24T13:49:13.888712"
     },
     {
       "test": "模块 core/executors.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646300"
+      "timestamp": "2026-03-24T13:49:13.888721"
     },
     {
       "test": "模块 core/memory.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646309"
+      "timestamp": "2026-03-24T13:49:13.888730"
     },
     {
       "test": "模块 core/audit_rules.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646318"
+      "timestamp": "2026-03-24T13:49:13.888738"
     },
     {
       "test": "模块 core/interceptor.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646326"
+      "timestamp": "2026-03-24T13:49:13.888747"
     },
     {
       "test": "模块 core/optimizer.py",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.646334"
+      "timestamp": "2026-03-24T13:49:13.888755"
     },
     {
       "test": "模块导入 (heroes)",
-      "passed": false,
-      "details": "No module named 'httpx'",
+      "passed": true,
+      "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668755"
+      "timestamp": "2026-03-24T13:49:14.459666"
     },
     {
       "test": "Hero 数量",
       "passed": true,
       "details": "14 个 Hero",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668805"
+      "timestamp": "2026-03-24T13:49:14.459685"
     },
     {
       "test": "Hero ui-ux-hero",
       "passed": true,
       "details": "UI/UX Design Expert",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668809"
+      "timestamp": "2026-03-24T13:49:14.459689"
     },
     {
       "test": "Hero engineering-hero",
       "passed": true,
       "details": "Engineering Expert",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668813"
+      "timestamp": "2026-03-24T13:49:14.459692"
     },
     {
       "test": "Hero pm-hero",
       "passed": true,
       "details": "Product Manager",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668815"
+      "timestamp": "2026-03-24T13:49:14.459695"
     },
     {
       "test": "Hero qa-hero",
       "passed": true,
       "details": "QA Engineer",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668817"
+      "timestamp": "2026-03-24T13:49:14.459697"
     },
     {
       "test": "Hero 字段 display_name",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668819"
+      "timestamp": "2026-03-24T13:49:14.459700"
     },
     {
       "test": "Hero 字段 system_prompt",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668821"
+      "timestamp": "2026-03-24T13:49:14.459742"
     },
     {
       "test": "Hero 字段 tools",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668823"
+      "timestamp": "2026-03-24T13:49:14.459752"
     },
     {
       "test": "Hero 字段 capabilities",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668824"
+      "timestamp": "2026-03-24T13:49:14.459754"
     },
     {
       "test": "Hero 字段 linked_skills",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.668826"
+      "timestamp": "2026-03-24T13:49:14.459756"
     },
     {
       "test": "执行器创建",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.687312"
+      "timestamp": "2026-03-24T13:49:14.460203"
     },
     {
       "test": "文件写入",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.687617"
+      "timestamp": "2026-03-24T13:49:14.460359"
     },
     {
       "test": "文件读取",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.687705"
+      "timestamp": "2026-03-24T13:49:14.460421"
     },
     {
       "test": "Bash 执行",
       "passed": true,
       "details": "E2E Bash Test",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.695166"
+      "timestamp": "2026-03-24T13:49:14.468299"
     },
     {
       "test": "记忆系统创建",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.696172"
+      "timestamp": "2026-03-24T13:49:14.469479"
     },
     {
       "test": "记忆加载",
       "passed": true,
-      "details": "项目：tmpik2i0xmp",
+      "details": "项目：tmpwv_4346o",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.696260"
+      "timestamp": "2026-03-24T13:49:14.469570"
     },
     {
       "test": "记忆写入",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.696378"
+      "timestamp": "2026-03-24T13:49:14.469701"
     },
     {
       "test": "记忆读取",
       "passed": true,
       "details": "1 条记录",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.696386"
+      "timestamp": "2026-03-24T13:49:14.469710"
     },
     {
       "test": "记忆持久化",
       "passed": true,
       "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.696491"
+      "timestamp": "2026-03-24T13:49:14.469816"
+    },
+    {
+      "test": "配置字段 hero_id",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498940"
+    },
+    {
+      "test": "配置字段 superpowers",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498950"
+    },
+    {
+      "test": "配置字段 drift_threshold",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498952"
+    },
+    {
+      "test": "配置字段 l2_sample_ratio",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498954"
+    },
+    {
+      "test": "配置字段 forbidden_words",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498956"
+    },
+    {
+      "test": "配置字段 dispatch_mode",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:14.498957"
     },
     {
       "test": "配置系统",
-      "passed": false,
-      "details": "PyYAML is required for YAML configuration support. Install it with: pip install pyyaml",
+      "passed": true,
+      "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.699028"
+      "timestamp": "2026-03-24T13:49:14.498959"
     },
     {
       "test": "API 连接",
-      "passed": false,
-      "details": "缺少 httpx 依赖",
+      "passed": true,
+      "details": "延迟：16273ms",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.699096"
+      "timestamp": "2026-03-24T13:49:30.827338"
+    },
+    {
+      "test": "HarnessEngine 创建",
+      "passed": true,
+      "details": "",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:30.853670"
+    },
+    {
+      "test": "任务执行",
+      "passed": true,
+      "details": "状态：completed, 耗时：1.17s",
+      "error": "",
+      "timestamp": "2026-03-24T13:49:32.020131"
     },
     {
       "test": "完整工作流",
-      "passed": false,
-      "details": "缺少依赖：No module named 'langgraph'",
+      "passed": true,
+      "details": "",
       "error": "",
-      "timestamp": "2026-03-24T13:40:18.699688"
+      "timestamp": "2026-03-24T13:49:32.020154"
     }
   ]
 }

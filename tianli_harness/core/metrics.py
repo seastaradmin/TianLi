@@ -301,6 +301,16 @@ class MetricsCollector:
         """Start a new metrics session."""
         self.current_session = SessionMetrics(session_id=session_id)
         return self.current_session
+    
+    def record_request_start(self):
+        """Record start of a request (alias for compatibility)."""
+        if self.current_session:
+            self.current_session.record_request_start()
+    
+    def record_completion(self):
+        """Record completion of a request (alias for compatibility)."""
+        if self.current_session:
+            self.current_session.record_completion()
 
     def get_current_session(self) -> Optional[SessionMetrics]:
         """Get current session metrics."""

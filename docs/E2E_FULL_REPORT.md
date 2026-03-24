@@ -1,6 +1,6 @@
 # E2E 完整测试报告
 
-**测试日期:** 2026-03-24T13:40:18.700584
+**测试日期:** 2026-03-24T13:49:32.021625
 **测试工具:** e2e-testing-patterns skill
 **测试范围:** 端到端完整流程
 
@@ -10,11 +10,11 @@
 
 | 指标 | 数值 |
 |------|------|
-| 总测试数 | 32 |
-| 通过 | 28 |
-| 失败 | 4 |
-| 通过率 | 87.5% |
-| 耗时 | 0.05秒 |
+| 总测试数 | 40 |
+| 通过 | 40 |
+| 失败 | 0 |
+| 通过率 | 100.0% |
+| 耗时 | 18.13秒 |
 
 ---
 
@@ -29,6 +29,7 @@
 - ✅ 模块 core/audit_rules.py: 
 - ✅ 模块 core/interceptor.py: 
 - ✅ 模块 core/optimizer.py: 
+- ✅ 模块导入 (heroes): 
 - ✅ Hero 数量: 14 个 Hero
 - ✅ Hero ui-ux-hero: UI/UX Design Expert
 - ✅ Hero engineering-hero: Engineering Expert
@@ -44,30 +45,32 @@
 - ✅ 文件读取: 
 - ✅ Bash 执行: E2E Bash Test
 - ✅ 记忆系统创建: 
-- ✅ 记忆加载: 项目：tmpik2i0xmp
+- ✅ 记忆加载: 项目：tmpwv_4346o
 - ✅ 记忆写入: 
 - ✅ 记忆读取: 1 条记录
 - ✅ 记忆持久化: 
+- ✅ 配置字段 hero_id: 
+- ✅ 配置字段 superpowers: 
+- ✅ 配置字段 drift_threshold: 
+- ✅ 配置字段 l2_sample_ratio: 
+- ✅ 配置字段 forbidden_words: 
+- ✅ 配置字段 dispatch_mode: 
+- ✅ 配置系统: 
+- ✅ API 连接: 延迟：16273ms
+- ✅ HarnessEngine 创建: 
+- ✅ 任务执行: 状态：completed, 耗时：1.17s
+- ✅ 完整工作流: 
 
 ## ❌ 失败的测试
 
-- ❌ 模块导入 (heroes): 
-- ❌ 配置系统: 
-- ❌ API 连接: 
-- ❌ 完整工作流: 
 
 ---
 
 ## 🎯 结论
 
-**⚠️ 4 个测试失败，需要修复以下问题:**
-
-1. 模块导入 (heroes): 
-1. 配置系统: 
-1. API 连接: 
-1. 完整工作流: 
+**✅ 所有测试通过！前后端已完全打通，流程有效！**
 
 ---
 
-**生成时间:** 2026-03-24T13:40:18.700621
+**生成时间:** 2026-03-24T13:49:32.021694
 **测试工具:** E2E Testing Patterns Skill
