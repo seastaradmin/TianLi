@@ -15,8 +15,8 @@ class DoubaoClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
-        model: str = "doubao-pro-4k",  # Default model that's commonly available
+        base_url: str = "https://ark.cn-beijing.volces.com/api/coding/v3",
+        model: str = "doubao-seed-2.0-code",
         timeout: float = 120.0
     ):
         self.api_key = api_key
