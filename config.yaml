@@ -1,0 +1,102 @@
+# TianLi Harness Configuration
+# 天理 Harness 配置
+
+# ==================== Model Configuration ====================
+models:
+  - name: doubao-coding
+    display_name: Doubao Coding (Volcengine Ark)
+    api_key: 660d27e6-e65f-4a33-8fea-87101d33c210
+    base_url: https://ark.cn-beijing.volces.com/api/coding
+    model: doubao-coding-pro  # 或具体模型名
+    max_tokens: 8192
+    temperature: 0.7
+
+# ==================== Hero Configuration ====================
+hero:
+  # 测试 UI-UX Hero 的交付能力
+  id: "ui-ux-hero"
+  use_predefined: true
+  superpowers:
+    - Read
+    - Write
+    - Edit
+    - Glob
+    - Grep
+    - Bash
+
+# ==================== TianJie (天劫) Audit Configuration ====================
+tianjie:
+  # L2 semantic alignment threshold (0.0-1.0)
+  drift_threshold: 0.4
+  
+  # Number of repeated tool calls to trigger L1 check
+  repetition_threshold: 3
+  
+  # Probability of L2 deep check (0.0-1.0)
+  # 1.0 = check every call, 0.0 = never check
+  l2_sample_ratio: 0.3
+  
+  # Forbidden words/phrases that trigger immediate failure
+  forbidden_words:
+    - "rm -rf /"
+    - "DROP TABLE"
+    - "DELETE FROM"
+    - "chmod 777"
+
+# ==================== TianYan (天演) Evolution Configuration ====================
+tianyan:
+  # Enable automatic evolution patch generation
+  enabled: true
+  
+  # Auto-commit patches to GitHub (requires github_token)
+  auto_commit: false
+  
+  # GitHub token for auto-commit (or set GITHUB_TOKEN env var)
+  # github_token: "ghp_xxx"
+
+# ==================== Dispatch Configuration ====================
+dispatch:
+  # Dispatch mode: "rules", "llm", "hybrid"
+  mode: "hybrid"
+  
+  # Maximum number of parallel heroes
+  max_fanout: 2
+  
+  # Model for routing decisions
+  router_model: "doubao-coding"
+  
+  # Model for audit checks
+  audit_model: "doubao-coding"
+  
+  # Default heroes to fallback on
+  default_hero_ids:
+    - "ui-ux-hero"
+    - "engineering-hero"
+
+# ==================== Advanced Configuration ====================
+# Checkpoint path for session persistence
+checkpoint_path: "./tianli_harness/checkpoints.sqlite"
+
+# Skill search paths
+skill_search_paths:
+  - "~/.agents/skills"
+  - "./custom_skills"
+
+# Maximum skill fanout
+max_skill_fanout: 2
+
+# Local hero prompts (override predefined)
+# local_hero_prompts:
+#   custom-hero: |
+#     You are a custom hero...
+
+# Remote hero sources (optional)
+# remote_sources:
+#   - source_id: "agency-agents"
+#     kind: "github"
+#     owner: "agency-agency"
+#     repo: "agency-agents"
+#     categories:
+#       - "engineering"
+#       - "product"
+#     enabled: true
