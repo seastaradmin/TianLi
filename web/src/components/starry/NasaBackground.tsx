@@ -1,54 +1,31 @@
 /**
- * NASA 真实星空背景
- * 使用本地存储的 NASA/ESO 公开天文照片
- * 
- * 图片来源：
- * - ESO 银河系全景图：eso1925a.jpg
- * - NASA 恒星地图：stars_map.png
- * 
- * 下载说明：见 /public/textures/stars/README.md
+ * 深空背景
+ * 纯深色背景，让程序生成的恒星成为主角
  */
 
-import { useFrame, useThree } from '@react-three/fiber'
-import { useRef, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useRef } from 'react'
 import * as THREE from 'three'
 
 /**
- * ESO 银河系全景背景
- * 来源：https://www.eso.org/public/images/eso1925a/
+ * 深空背景 - 禁用银河图片，使用纯净深色背景
  */
 export function NasaMilkyWayBackground() {
   const meshRef = useRef<THREE.Mesh>(null!)
-  const [loaded, setLoaded] = useState(false)
   
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += 0.00002
+      meshRef.current.rotation.y += 0.00001
     }
   })
-  
-  // 尝试加载本地 NASA 图片，失败则使用程序生成
-  const texture = loaded 
-    ? new THREE.TextureLoader().load('/textures/stars/milkyway.jpg')
-    : null
   
   return (
     <mesh ref={meshRef} scale={[-1, 1, 1]}>
       <sphereGeometry args={[500, 64, 32]} />
-      {texture ? (
-        <meshBasicMaterial
-          map={texture}
-          side={THREE.BackSide}
-          transparent
-          opacity={0.8}
-          onLoad={() => setLoaded(true)}
-        />
-      ) : (
-        <meshBasicMaterial
-          side={THREE.BackSide}
-          color="#0a0a1a"
-        />
-      )}
+      <meshBasicMaterial
+        side={THREE.BackSide}
+        color="#020205"
+      />
     </mesh>
   )
 }

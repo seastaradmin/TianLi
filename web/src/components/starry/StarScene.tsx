@@ -57,11 +57,11 @@ export const StarScene = memo(function StarScene({
         gl={{ antialias: true, alpha: true }}
         dpr={[1, 2]}
       >
-        {/* NASA 真实银河背景（本地资源） */}
+        {/* 深空背景（纯黑） */}
         <NasaMilkyWayBackground />
         
-        {/* 真实星空（8000 颗恒星，基于光谱分布） */}
-        <RealisticStarfield starCount={8000} twinkleSpeed={1.5} exposure={1.5} />
+        {/* 真实星空（15000 颗恒星，基于光谱分布） */}
+        <RealisticStarfield starCount={15000} twinkleSpeed={2.0} exposure={2.5} enableNebula={false} />
         
         {/* 环境光 */}
         <ambientLight intensity={0.2} />

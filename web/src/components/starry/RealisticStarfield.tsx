@@ -63,6 +63,17 @@ function generateRealisticStars(count: number = 8000): {
     if (random < 0.50) return 3700 + random * 3000       // K: 橙色
     return 2400 + random * 2600                           // M: 红色
   }
+  
+  // 轻微增强颜色（保持自然）
+  function enhanceColor(color: THREE.Color): THREE.Color {
+    // 轻微提高饱和度
+    const saturationBoost = 1.2
+    const gray = (color.r + color.g + color.b) / 3
+    color.r = gray + (color.r - gray) * saturationBoost
+    color.g = gray + (color.g - gray) * saturationBoost
+    color.b = gray + (color.b - gray) * saturationBoost
+    return color
+  }
 
   // 伪随机数生成器（可重现）
   let seed = 42
@@ -86,12 +97,19 @@ function generateRealisticStars(count: number = 8000): {
     const magnitude = -1.5 + Math.pow(random(), 0.4) * 8.0
     magnitudes[i] = magnitude
 
-    // 恒星温度 → 颜色
+    // 恒星温度 → 颜色（轻微增强，让彩色恒星更明显）
     const temp = getStarTemp(random())
-    const color = blackbodyColor(temp)
+    let color = blackbodyColor(temp)
+    
+    // 轻微提高饱和度
+    const saturationBoost = 1.3
+    const gray = (color.r + color.g + color.b) / 3
+    color.r = gray + (color.r - gray) * saturationBoost
+    color.g = gray + (color.g - gray) * saturationBoost
+    color.b = gray + (color.b - gray) * saturationBoost
 
     // 亮度基于视星等（越小越亮）
-    const brightness = magnitude < 0 ? 2.0 : Math.max(0.3, 1 - magnitude / 6.5)
+    const brightness = magnitude < 0 ? 2.0 : Math.max(0.5, 1.2 - magnitude / 6.5)
 
     colors[i * 3] = Math.min(1.0, color.r * brightness)
     colors[i * 3 + 1] = Math.min(1.0, color.g * brightness)
@@ -105,12 +123,14 @@ interface RealisticStarfieldProps {
   starCount?: number
   twinkleSpeed?: number
   exposure?: number
+  enableNebula?: boolean
 }
 
 export function RealisticStarfield({
   starCount = 8000,
-  twinkleSpeed = 1.0,
-  exposure = 1.0,
+  twinkleSpeed = 1.5,
+  exposure = 1.8,
+  enableNebula = true,
 }: RealisticStarfieldProps) {
   const starsRef = useRef<THREE.Points>(null!)
   const { size, camera } = useThree()
@@ -168,8 +188,8 @@ export function RealisticStarfield({
           time: { value: 0 },
           twinkleSpeed: { value: twinkleSpeed },
           exposure: { value: exposure },
-          baseSizePx: { value: 3.0 },
-          brightnessExp: { value: 2.5 },
+          baseSizePx: { value: 2.5 },
+          brightnessExp: { value: 2.0 },
         }}
         vertexShader={`
           uniform float time;
@@ -200,9 +220,10 @@ export function RealisticStarfield({
             
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             
-            // 视星等决定大小（越亮越大）
+            // 视星等决定大小（越亮越大），但限制最大尺寸
             float magSize = pow(10.0, (6.5 - aMagnitude) / 5.0);
-            gl_PointSize = baseSizePx * magSize * (300.0 / -mvPosition.z);
+            magSize = min(magSize, 4.0); // 限制最大尺寸，避免过大光斑
+            gl_PointSize = baseSizePx * magSize * (200.0 / -mvPosition.z);
             
             gl_Position = projectionMatrix * mvPosition;
           }
@@ -217,17 +238,13 @@ export function RealisticStarfield({
             float r = distance(gl_PointCoord, vec2(0.5));
             if (r > 0.5) discard;
             
-            // 柔和边缘 + 光晕
+            // 柔和边缘
             float glow = 1.0 - (r * 2.0);
-            glow = pow(glow, 1.5);
+            glow = pow(glow, 2.0);
             
-            // 亮星有明显光晕
-            float halo = 1.0 - smoothstep(0.0, 0.5, r);
-            halo = pow(halo, 3.0) * 0.5;
+            vec3 finalColor = vColor * vTwinkle * glow;
             
-            vec3 finalColor = vColor * vTwinkle * (glow + halo);
-            
-            gl_FragColor = vec4(finalColor, glow + halo);
+            gl_FragColor = vec4(finalColor, glow);
           }
         `}
       />
