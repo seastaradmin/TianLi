@@ -6,8 +6,39 @@
     <title>天理 · 星空</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-      #stars-container { position: fixed; inset: 0; overflow: hidden; }
+      body { overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+      #stars-container { 
+        position: fixed; 
+        inset: 0; 
+        overflow: hidden;
+        background: linear-gradient(180deg, 
+          #000011 0%, 
+          #0a0a2e 30%, 
+          #1a0a3e 50%, 
+          #0a0a2e 70%, 
+          #000011 100%
+        );
+      }
+      /* 银河光晕 */
+      #milky-way {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-30deg);
+        width: 120%;
+        height: 40%;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(100, 50, 150, 0.15) 20%,
+          rgba(150, 80, 200, 0.2) 50%,
+          rgba(100, 50, 150, 0.15) 80%,
+          transparent 100%
+        );
+        filter: blur(40px);
+        pointer-events: none;
+        z-index: 0;
+      }
       .star {
         position: absolute;
         border-radius: 50%;
@@ -17,6 +48,35 @@
       @keyframes twinkle {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.3; }
+      }
+      @keyframes shooting-star {
+        0% {
+          transform: translate(0, 0) rotate(-45deg);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(-300px, 300px) rotate(-45deg);
+          opacity: 0;
+        }
+      }
+      .shooting-star {
+        position: absolute;
+        width: 3px;
+        height: 3px;
+        background: linear-gradient(45deg, #fff, transparent);
+        border-radius: 50%;
+        box-shadow: 0 0 20px 2px rgba(255, 255, 255, 0.8);
+        opacity: 0;
+      }
+      .shooting-star::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100px;
+        height: 2px;
+        background: linear-gradient(90deg, #fff, transparent);
+        transform: translateX(-100%);
       }
       #input-area {
         position: fixed;
@@ -93,17 +153,97 @@
         display: none;
       }
       #overlay.show { display: block; }
+      .loading {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, #000011 0%, #0a0a2e 100%);
+        color: #fff;
+        z-index: 1000;
+        transition: opacity 0.5s ease;
+      }
+      .loading.hidden { opacity: 0; pointer-events: none; }
+      .loading-spinner {
+        width: 60px;
+        height: 60px;
+        border: 3px solid rgba(255,255,255,0.1);
+        border-top-color: #4a90d9;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .loading-text {
+        font-size: 16px;
+        opacity: 0.8;
+        animation: pulse 1.5s ease infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 0.4; }
+      }
+      /* 进度提示 */
+      #progress-toast {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-100px);
+        background: rgba(74, 144, 217, 0.9);
+        color: #fff;
+        padding: 12px 24px;
+        border-radius: 999px;
+        font-size: 14px;
+        z-index: 500;
+        transition: transform 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        backdrop-filter: blur(10px);
+      }
+      #progress-toast.show {
+        transform: translateX(-50%) translateY(0);
+      }
+      .progress-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
     </style>
   </head>
   <body>
-    <div id="stars-container"></div>
+    <!-- 加载动画 -->
+    <div class="loading" id="loading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">正在连接星空...</div>
+    </div>
     
+    <!-- 星空容器 -->
+    <div id="stars-container"></div>
+    <!-- 银河背景 -->
+    <div id="milky-way"></div>
+    
+    <!-- 进度提示 -->
+    <div id="progress-toast">
+      <div class="progress-spinner"></div>
+      <span id="progress-text">正在处理...</span>
+    </div>
+    
+    <!-- 输入框 -->
     <div id="input-area">
       <input type="text" id="task-input" placeholder="输入任务..." />
     </div>
     
+    <!-- 遮罩层 -->
     <div id="overlay" onclick="closeDrawer()"></div>
     
+    <!-- 产物抽屉 -->
     <div id="drawer">
       <div class="drawer-header">
         <h2>✅ 任务完成</h2>
@@ -122,17 +262,10 @@
         const star = document.createElement('div');
         star.className = 'star';
         
-        // 随机位置
         const x = Math.random() * 100;
         const y = Math.random() * 100;
-        
-        // 随机大小 (3-8px)
         const size = 3 + Math.random() * 5;
-        
-        // 随机颜色
         const color = colors[Math.floor(Math.random() * colors.length)];
-        
-        // 随机动画延迟
         const delay = Math.random() * 2;
         
         star.style.left = x + '%';
@@ -146,19 +279,75 @@
         container.appendChild(star);
       }
       
+      // 流星效果
+      function createShootingStar() {
+        const meteor = document.createElement('div');
+        meteor.className = 'shooting-star';
+        
+        const startX = 50 + Math.random() * 40;
+        const startY = 10 + Math.random() * 30;
+        
+        meteor.style.left = startX + '%';
+        meteor.style.top = startY + '%';
+        meteor.style.animation = `shooting-star ${1.5 + Math.random()}s linear`;
+        
+        container.appendChild(meteor);
+        
+        setTimeout(() => {
+          meteor.remove();
+        }, 3000);
+      }
+      
+      function scheduleShootingStar() {
+        const delay = 10000 + Math.random() * 20000;
+        setTimeout(() => {
+          createShootingStar();
+          scheduleShootingStar();
+        }, delay);
+      }
+      
+      scheduleShootingStar();
+      setTimeout(createShootingStar, 3000);
+      
+      // 隐藏加载动画
+      setTimeout(() => {
+        document.getElementById('loading').classList.add('hidden');
+      }, 1500);
+      
       // 输入框功能
       const input = document.getElementById('task-input');
       const drawer = document.getElementById('drawer');
       const overlay = document.getElementById('overlay');
       const deliverablesList = document.getElementById('deliverables-list');
+      const progressToast = document.getElementById('progress-toast');
+      const progressText = document.getElementById('progress-text');
+      
+      function showProgress(text) {
+        progressText.textContent = text;
+        progressToast.classList.add('show');
+      }
+      
+      function hideProgress() {
+        progressToast.classList.remove('show');
+      }
       
       input.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
-          console.log('任务:', input.value);
+          const task = input.value.trim();
+          console.log('任务:', task);
           input.value = '';
+          
+          // 显示进度提示
+          showProgress('正在处理任务...');
+          
+          // 模拟任务进度
+          setTimeout(() => {
+            showProgress('正在生成交付物...');
+          }, 1000);
           
           // 模拟任务完成
           setTimeout(() => {
+            hideProgress();
             showDeliverables();
           }, 2000);
         }
