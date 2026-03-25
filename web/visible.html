@@ -39,6 +39,19 @@
         pointer-events: none;
         z-index: 0;
       }
+      /* 星座连线 */
+      .constellation-line {
+        position: absolute;
+        height: 1px;
+        background: linear-gradient(90deg, 
+          rgba(255,255,255,0) 0%,
+          rgba(255,255,255,0.3) 50%,
+          rgba(255,255,255,0) 100%
+        );
+        transform-origin: left center;
+        pointer-events: none;
+        z-index: 1;
+      }
       .star {
         position: absolute;
         border-radius: 50%;
@@ -308,6 +321,43 @@
       
       scheduleShootingStar();
       setTimeout(createShootingStar, 3000);
+      
+      // 北斗七星连线
+      function createConstellation() {
+        // 北斗七星相对位置（勺状）
+        const bigDipper = [
+          { x: 20, y: 30 },  // 天枢
+          { x: 25, y: 32 },  // 天璇
+          { x: 30, y: 35 },  // 天玑
+          { x: 35, y: 33 },  // 天权
+          { x: 40, y: 30 },  // 玉衡
+          { x: 45, y: 28 },  // 开阳
+          { x: 50, y: 25 },  // 摇光
+        ];
+        
+        // 创建连线
+        for (let i = 0; i < bigDipper.length - 1; i++) {
+          const line = document.createElement('div');
+          line.className = 'constellation-line';
+          
+          const x1 = bigDipper[i].x;
+          const y1 = bigDipper[i].y;
+          const x2 = bigDipper[i + 1].x;
+          const y2 = bigDipper[i + 1].y;
+          
+          const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+          const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+          
+          line.style.left = x1 + '%';
+          line.style.top = y1 + '%';
+          line.style.width = length + '%';
+          line.style.transform = `rotate(${angle}deg)`;
+          
+          container.appendChild(line);
+        }
+      }
+      
+      createConstellation();
       
       // 隐藏加载动画
       setTimeout(() => {
