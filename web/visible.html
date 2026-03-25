@@ -367,26 +367,75 @@
         progressToast.classList.remove('show');
       }
       
-      input.addEventListener('keypress', (e) => {
+      // 发送任务到后端
+      async function submitTask(taskText) {
+        try {
+          const response = await fetch('http://localhost:1420/api/tasks/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task: taskText,
+              language: 'zh',
+              pinnedHeroId: null,
+              collaborationMode: 'primary_consult',
+            }),
+          });
+          
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return await response.json();
+        } catch (error) {
+          console.error('任务提交失败:', error);
+          throw error;
+        }
+      }
+      
+      // 获取任务产物
+      async function getTaskDeliverables(taskId) {
+        try {
+          const response = await fetch(`http://localhost:1420/api/deliverables?limit=10`);
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return await response.json();
+        } catch (error) {
+          console.error('获取产物失败:', error);
+          return { items: [] };
+        }
+      }
+      
+      input.addEventListener('keypress', async (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
           const task = input.value.trim();
           console.log('任务:', task);
           input.value = '';
           
-          showProgress('正在处理任务...');
+          showProgress('正在分发任务...');
           
-          setTimeout(() => {
-            showProgress('正在生成交付物...');
-          }, 1000);
-          
-          setTimeout(() => {
+          try {
+            // 发送到后端
+            const result = await submitTask(task);
+            console.log('任务已提交:', result);
+            
+            showProgress('正在执行任务...');
+            
+            // 等待任务完成（轮询）
+            setTimeout(async () => {
+              showProgress('正在获取交付物...');
+              
+              const deliverablesData = await getTaskDeliverables(result.taskId);
+              console.log('产物:', deliverablesData);
+              
+              hideProgress();
+              showRealDeliverables(deliverablesData.items || []);
+            }, 2000);
+            
+          } catch (error) {
             hideProgress();
-            showDeliverables();
-          }, 2000);
+            alert('任务提交失败：' + error.message);
+          }
         }
       });
       
       function showDeliverables() {
+        // Mock 数据（备用）
         deliverablesList.innerHTML = `
           <div class="deliverable">
             <h3>📄 产品需求文档_v1.md</h3>
@@ -394,21 +443,38 @@
             <p>提供者：ProductHero ⭐⭐⭐⭐⭐</p>
             <button onclick="alert('下载：产品需求文档_v1.md')">下载</button>
           </div>
-          <div class="deliverable">
-            <h3>📊 市场分析报告.xlsx</h3>
-            <p>类型：Excel | 大小：1.2 MB</p>
-            <p>提供者：DataHero ⭐⭐⭐⭐</p>
-            <button onclick="alert('下载：市场分析报告.xlsx')">下载</button>
-          </div>
-          <div class="deliverable">
-            <h3>🐍 main.py</h3>
-            <p>类型：Python | 大小：8 KB</p>
-            <p>提供者：CodeHero ⭐⭐⭐⭐⭐</p>
-            <button onclick="alert('下载：main.py')">下载</button>
-          </div>
         `;
         drawer.classList.add('open');
         overlay.classList.add('show');
+      }
+      
+      function showRealDeliverables(items) {
+        if (items.length === 0) {
+          deliverablesList.innerHTML = `
+            <div style="text-align: center; color: #888; padding: 40px 20px;">
+              <p>暂无产物</p>
+              <p style="font-size: 12px; margin-top: 10px;">任务可能还在执行中...</p>
+            </div>
+          `;
+        } else {
+          deliverablesList.innerHTML = items.map(item => `
+            <div class="deliverable">
+              <h3>📄 ${item.fileName || '未命名文件'}</h3>
+              <p>类型：${(item.fileType || 'unknown').toUpperCase()} | 大小：${formatFileSize(item.sizeBytes || 0)}</p>
+              <p>路径：${item.relativePath || item.id || '未知'}</p>
+              ${item.downloadUrl ? `<button onclick="window.open('${item.downloadUrl}', '_blank')">下载</button>` : ''}
+            </div>
+          `).join('');
+        }
+        drawer.classList.add('open');
+        overlay.classList.add('show');
+      }
+      
+      function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+        return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
       }
       
       function closeDrawer() {
