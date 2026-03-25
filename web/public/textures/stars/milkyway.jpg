@@ -1,0 +1,13 @@
+<html>
+ <head><title>404 Not Found</title></head>
+ <body>
+  <h1>404 Not Found</h1>
+  <ul>
+   <li>Code: NoSuchKey</li>
+   <li>Message: </li>
+   <li>BucketName: s3media</li>
+   <li>RequestId: tx00000e000d7d1aeb24ef6-0069c3d0bf-b38c5a8-prg</li>
+   <li>HostId: b38c5a8-prg-eu-1</li>
+  </ul>
+ </body>
+</html>
