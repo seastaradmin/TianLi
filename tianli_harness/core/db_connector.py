@@ -60,6 +60,7 @@ class FeedbackDatabase:
         try:
             self.connection = pymysql.connect(**self.config)
             logger.info(f"Connected to database: {self.config['database']}")
+            self.ensure_conversation_messages_table()
         except Error as e:
             logger.warning(f"Failed to connect to database: {e}")
             self.connection = None
@@ -70,6 +71,38 @@ class FeedbackDatabase:
             self._connect()
         elif not self.connection.open:
             self._connect()
+
+    def ensure_conversation_messages_table(self) -> bool:
+        """Create the persisted conversation history table when it is missing."""
+        self._ensure_connection()
+        if self.connection is None:
+            return False
+
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    task_id VARCHAR(100) NOT NULL,
+                    `round` INT DEFAULT 0,
+                    role VARCHAR(20) NOT NULL,
+                    content LONGTEXT NOT NULL,
+                    hero_id VARCHAR(100),
+                    status VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_task_created_at (task_id, created_at),
+                    INDEX idx_created_at (created_at),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+            )
+            self.connection.commit()
+            cursor.close()
+            return True
+        except Error as e:
+            logger.error(f"Failed to ensure conversation_messages table: {e}")
+            return False
     
     def log_dispatch_decision(
         self,
@@ -324,6 +357,38 @@ class FeedbackDatabase:
         except Error as e:
             logger.error(f"Failed to update hero performance: {e}")
             return False
+
+    def log_conversation_message(
+        self,
+        task_id: str,
+        round_index: int,
+        role: str,
+        content: str,
+        hero_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> bool:
+        """Persist a task-level conversation milestone."""
+        self._ensure_connection()
+        if self.connection is None:
+            return False
+
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(
+                """
+                INSERT INTO conversation_messages (
+                    task_id, `round`, role, content, hero_id, status
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (task_id, round_index, role, content, hero_id, status),
+            )
+            self.connection.commit()
+            cursor.close()
+            logger.info(f"Logged conversation message: {task_id} [{role}]")
+            return True
+        except Error as e:
+            logger.error(f"Failed to log conversation message: {e}")
+            return False
     
     def get_hero_weights(self) -> Dict[str, Dict[str, float]]:
         """
@@ -387,6 +452,152 @@ class FeedbackDatabase:
             
         except Error as e:
             logger.error(f"Failed to get synonyms: {e}")
+            return []
+
+    def fetch_recent_dispatch_decisions(
+        self,
+        limit: int = 500,
+        since: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch recent dispatch decisions for dashboard/session aggregation."""
+        self._ensure_connection()
+        if self.connection is None or pymysql is None:
+            return []
+
+        try:
+            cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+            sql = """
+                SELECT
+                    id, task_id, session_id, user_input, selected_hero_ids,
+                    primary_hero_id, consult_hero_ids, candidate_scores,
+                    dispatch_reason, dispatch_mode, collaboration_mode,
+                    fallback_used, created_at
+                FROM dispatch_decisions
+            """
+            params: List[Any] = []
+            if since is not None:
+                sql += " WHERE created_at >= %s"
+                params.append(since)
+            sql += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            cursor.execute(sql, tuple(params))
+            rows = list(cursor.fetchall())
+            cursor.close()
+            return rows
+        except Error as e:
+            logger.error(f"Failed to fetch dispatch decisions: {e}")
+            return []
+
+    def fetch_recent_task_results(
+        self,
+        limit: int = 2000,
+        since: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch recent task execution rows for metrics and charts."""
+        self._ensure_connection()
+        if self.connection is None or pymysql is None:
+            return []
+
+        try:
+            cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+            sql = """
+                SELECT
+                    id, task_id, dispatch_id, status, current_status,
+                    execution_time_ms, total_tokens, l1_passed, l2_passed,
+                    l2_score, violations, evolution_patch, created_at
+                FROM task_results
+            """
+            params: List[Any] = []
+            if since is not None:
+                sql += " WHERE created_at >= %s"
+                params.append(since)
+            sql += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            cursor.execute(sql, tuple(params))
+            rows = list(cursor.fetchall())
+            cursor.close()
+            return rows
+        except Error as e:
+            logger.error(f"Failed to fetch task results: {e}")
+            return []
+
+    def fetch_conversation_messages(self, limit_tasks: int = 50) -> List[Dict[str, Any]]:
+        """Fetch persisted conversation messages for the most recent tasks."""
+        self._ensure_connection()
+        if self.connection is None or pymysql is None:
+            return []
+
+        try:
+            cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+            cursor.execute(
+                """
+                SELECT task_id, MAX(created_at) AS last_message_at
+                FROM conversation_messages
+                GROUP BY task_id
+                ORDER BY last_message_at DESC
+                LIMIT %s
+                """,
+                (limit_tasks,),
+            )
+            task_rows = list(cursor.fetchall())
+            task_ids = [row["task_id"] for row in task_rows if row.get("task_id")]
+            if not task_ids:
+                cursor.close()
+                return []
+
+            placeholders = ", ".join(["%s"] * len(task_ids))
+            cursor.execute(
+                f"""
+                SELECT
+                    id, task_id, `round`, role, content,
+                    hero_id, status, created_at
+                FROM conversation_messages
+                WHERE task_id IN ({placeholders})
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(task_ids),
+            )
+            rows = list(cursor.fetchall())
+            cursor.close()
+            return rows
+        except Error as e:
+            logger.error(f"Failed to fetch conversation messages: {e}")
+            return []
+
+    def fetch_hero_performance_summary(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch recent aggregated hero performance rows."""
+        self._ensure_connection()
+        if self.connection is None or pymysql is None:
+            return []
+
+        try:
+            cursor = self.connection.cursor(pymysql.cursors.DictCursor)
+            cursor.execute(
+                """
+                SELECT
+                    hero_id,
+                    stat_date,
+                    total_tasks,
+                    successful_tasks,
+                    failed_tasks,
+                    avg_execution_time_ms,
+                    avg_l1_pass_rate,
+                    avg_l2_pass_rate,
+                    avg_l2_score,
+                    avg_user_rating,
+                    current_weight,
+                    weight_adjustment
+                FROM hero_performance
+                ORDER BY stat_date DESC, total_tasks DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = list(cursor.fetchall())
+            cursor.close()
+            return rows
+        except Error as e:
+            logger.error(f"Failed to fetch hero performance summary: {e}")
             return []
     
     def close(self):

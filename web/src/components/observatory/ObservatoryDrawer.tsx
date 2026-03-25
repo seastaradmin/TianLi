@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   formatHeroCountLabel,
@@ -13,9 +13,21 @@ import {
   t,
 } from '../../i18n'
 import { MainMonitor } from './MainMonitor'
-import type { DeliveryDetail, HeroState, Language, LogEntry, RunSummary, SkillDispatchState, Stats, TaskState, UiAnchor } from '../../types'
+import type {
+  DeliverableArtifact,
+  DeliveryDetail,
+  HeroState,
+  Language,
+  LogEntry,
+  RunSummary,
+  SkillDispatchState,
+  Stats,
+  TaskState,
+  UiAnchor,
+} from '../../types'
 import { collectHeroSkillIds, countHeroSkills } from '../../utils/heroSkills'
 import { buildRegionTelemetry } from '../../utils/regions'
+import { apiUrl } from '../../utils/api'
 
 type SkillTraceState = SkillDispatchState & { taskTitle?: string }
 
@@ -168,6 +180,30 @@ function buildDrawerMotion(origin: UiAnchor | null) {
   }
 }
 
+function formatFileSize(sizeBytes: number, language: Language) {
+  if (sizeBytes < 1024) {
+    return language === 'zh' ? `${sizeBytes} B` : `${sizeBytes} B`
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1)} KB`
+  }
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatArtifactTime(value: string, language: Language) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function ObservatoryDrawer({
   isOpen,
   selectedNodeId,
@@ -192,6 +228,9 @@ export function ObservatoryDrawer({
   onVerdict,
 }: ObservatoryDrawerProps) {
   const drawerRef = useRef<HTMLDivElement | null>(null)
+  const [deliverables, setDeliverables] = useState<DeliverableArtifact[]>([])
+  const [deliverablesLoading, setDeliverablesLoading] = useState(false)
+  const [deliverablesError, setDeliverablesError] = useState<string | null>(null)
   const compactLogs = useMemo(() => logs.slice(-8).reverse(), [logs])
   const motion = buildDrawerMotion(drawerOrigin)
   const localHeroes = useMemo(() => heroes.filter((hero) => hero.source === 'local').length, [heroes])
@@ -225,6 +264,41 @@ export function ObservatoryDrawer({
   const governanceEvents = useMemo(() => buildGovernanceEvents(tasks), [tasks])
   const recoveringHeroes = useMemo(() => heroes.filter((hero) => hero.status === 'recovering'), [heroes])
   const taskFocusEarlyExitCount = taskFocus ? resolveTaskEarlyExitCount(taskFocus) : 0
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadDeliverables = async () => {
+      setDeliverablesLoading(true)
+      setDeliverablesError(null)
+
+      try {
+        const response = await fetch(apiUrl('/api/deliverables?limit=12'), { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const payload = (await response.json()) as { items?: DeliverableArtifact[] }
+        setDeliverables(payload.items ?? [])
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+        setDeliverablesError(String(error))
+      } finally {
+        if (!controller.signal.aborted) {
+          setDeliverablesLoading(false)
+        }
+      }
+    }
+
+    void loadDeliverables()
+    return () => controller.abort()
+  }, [isOpen, runSummary?.completedAt, taskFocus?.completedAt])
 
   useEffect(() => {
     if (!isOpen || !drawerRef.current) {
@@ -421,6 +495,57 @@ export function ObservatoryDrawer({
                         </article>
                       )
                     })
+                  )}
+                </div>
+
+                <div className="observatory-delivery-files">
+                  <div className="observatory-section-heading">
+                    <div>
+                      <div className="observatory-card-kicker">{t(language, 'deliverable_files')}</div>
+                      <h4 className="observatory-section-title">{t(language, 'deliverable_files')}</h4>
+                    </div>
+                    <span className="observatory-summary-chip">{deliverables.length}</span>
+                  </div>
+
+                  {deliverablesLoading ? (
+                    <div className="observatory-empty">{t(language, 'deliverable_files_loading')}</div>
+                  ) : deliverablesError ? (
+                    <div className="observatory-empty">{t(language, 'deliverable_files_error', { error: deliverablesError })}</div>
+                  ) : deliverables.length === 0 ? (
+                    <div className="observatory-empty">{t(language, 'deliverable_files_empty')}</div>
+                  ) : (
+                    <div className="observatory-delivery-grid">
+                      {deliverables.map((file) => (
+                        <article key={file.id} className="observatory-delivery-card observatory-asset-card">
+                          <div className="observatory-delivery-card-head">
+                            <div>
+                              <div className="observatory-card-kicker">{file.rootName}</div>
+                              <strong>{file.fileName}</strong>
+                            </div>
+                            <span className="observatory-task-card-status">{file.fileType.toUpperCase()}</span>
+                          </div>
+                          <div className="observatory-delivery-card-meta">
+                            <span className="observatory-task-card-chip">{formatFileSize(file.sizeBytes, language)}</span>
+                            <span className="observatory-task-card-chip">
+                              {t(language, 'updated_at')}: {formatArtifactTime(file.modifiedAt, language)}
+                            </span>
+                          </div>
+                          <p className="observatory-delivery-card-copy">
+                            {t(language, 'file_location')}: {file.relativePath}
+                          </p>
+                          <div className="observatory-asset-actions">
+                            <a
+                              className="observatory-asset-link"
+                              href={apiUrl(file.downloadUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {t(language, 'download_file')}
+                            </a>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   )}
                 </div>
 

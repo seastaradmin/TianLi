@@ -234,6 +234,25 @@ CREATE TABLE IF NOT EXISTS synonym_mappings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
+-- 8. 对话历史消息表
+-- 持久化任务级关键消息，支持跨重启查看
+-- ============================================
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(100) NOT NULL,
+    `round` INT DEFAULT 0,
+    role VARCHAR(20) NOT NULL,  -- user, assistant
+    content LONGTEXT NOT NULL,
+    hero_id VARCHAR(100),
+    status VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_task_created_at (task_id, created_at),
+    INDEX idx_created_at (created_at),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
 -- 初始化数据
 -- ============================================
 

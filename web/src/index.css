@@ -1549,6 +1549,46 @@ button {
   padding-top: 14px;
 }
 
+.observatory-delivery-files {
+  margin-top: 14px;
+  border: 1px solid rgba(159, 179, 207, 0.12);
+  border-radius: 20px;
+  background: rgba(6, 11, 21, 0.68);
+  padding: 16px 18px;
+}
+
+.observatory-asset-card {
+  display: grid;
+  gap: 12px;
+}
+
+.observatory-asset-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.observatory-asset-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(116, 224, 255, 0.18);
+  background: rgba(116, 224, 255, 0.1);
+  color: #d9f8ff;
+  text-decoration: none;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.observatory-asset-link:hover,
+.observatory-asset-link:focus-visible {
+  outline: none;
+  border-color: rgba(116, 224, 255, 0.34);
+  background: rgba(116, 224, 255, 0.16);
+  transform: translateY(-1px);
+}
+
 .observatory-delivery-evolution pre {
   margin: 10px 0 0;
   max-height: 180px;

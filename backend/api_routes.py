@@ -192,10 +192,8 @@ async def get_logs(
 @router.get("/logs/stream")
 async def stream_logs(task_id: Optional[str] = None):
     """实时日志流 (SSE)"""
-    # TODO: 实现 Server-Sent Events
     
     async def generate():
-        # Mock 数据
         import asyncio
         while True:
             log = {
@@ -205,7 +203,7 @@ async def stream_logs(task_id: Optional[str] = None):
                 "message": f"实时日志 {datetime.now().strftime('%H:%M:%S')}",
                 "task_id": task_id or "demo-task"
             }
-            yield f"data: {json.dumps(log)}\n\n"
+            yield f"event: log\ndata: {json.dumps(log)}\n\n"
             await asyncio.sleep(5)
     
     return StreamingResponse(
@@ -250,6 +248,38 @@ async def get_hero_performance():
             {"hero_id": "ui-ux-hero", "total_tasks": 25, "success_rate": 0.88},
             {"hero_id": "engineering-hero", "total_tasks": 50, "success_rate": 0.92}
         ]
+    }
+
+
+# ==================== 状态接口 ====================
+
+@router.get("/status")
+async def get_status():
+    """获取系统状态快照"""
+    # 返回 mock 数据供前端使用
+    return {
+        "status": {
+            "phase": "idle",
+            "currentTask": None,
+            "lastError": None
+        },
+        "stats": {
+            "totalSessions": 156,
+            "totalRequests": 2847,
+            "l1PassRate": 0.892,
+            "l2PassRate": 0.967,
+            "earlyExitRate": 0.043,
+            "avgLatencyMs": 234,
+            "totalViolations": 23,
+            "evolutionPatches": 12
+        },
+        "heroGalaxy": [],
+        "activeTasks": [],
+        "judgmentQueue": [],
+        "lightFlows": [],
+        "latestDispatchDecision": None,
+        "latestRunSummary": None,
+        "logs": []
     }
 
 

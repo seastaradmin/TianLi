@@ -40,9 +40,9 @@ echo "======================================"
 echo ""
 echo "📡 API 地址：http://localhost:8000"
 echo "📚 API 文档：http://localhost:8000/docs"
-echo "💚 健康检查：http://localhost:8000/health"
+echo "💚 健康检查：http://localhost:8000/api/health"
 echo ""
 echo "按 Ctrl+C 停止服务"
 echo ""
 
-python3 -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+python3 -m uvicorn backend_server:app --reload --host 0.0.0.0 --port 8000

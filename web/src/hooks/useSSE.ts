@@ -6,7 +6,24 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const retryAttemptRef = useRef(0)
+  const handlersRef = useRef({
+    onLog,
+    onStats,
+    onSkyState,
+    onDispatchDecision,
+    onDeliveryReady,
+  })
   const [isConnected, setIsConnected] = useState(false)
+
+  useEffect(() => {
+    handlersRef.current = {
+      onLog,
+      onStats,
+      onSkyState,
+      onDispatchDecision,
+      onDeliveryReady,
+    }
+  }, [onDeliveryReady, onDispatchDecision, onLog, onSkyState, onStats])
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current === null) {
@@ -63,27 +80,27 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
     })
 
     eventSource.addEventListener('log', (event) => {
-      onLog?.(JSON.parse(event.data) as LogEntry)
+      handlersRef.current.onLog?.(JSON.parse(event.data) as LogEntry)
     })
 
     eventSource.addEventListener('stats', (event) => {
-      onStats?.(JSON.parse(event.data) as Stats)
+      handlersRef.current.onStats?.(JSON.parse(event.data) as Stats)
     })
 
     eventSource.addEventListener('sky_state', (event) => {
-      onSkyState?.(JSON.parse(event.data) as SkySnapshot)
+      handlersRef.current.onSkyState?.(JSON.parse(event.data) as SkySnapshot)
     })
 
     eventSource.addEventListener('dispatch_decision', (event) => {
-      onDispatchDecision?.(JSON.parse(event.data) as DispatchDecision)
+      handlersRef.current.onDispatchDecision?.(JSON.parse(event.data) as DispatchDecision)
     })
 
     eventSource.addEventListener('delivery_ready', (event) => {
-      onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
+      handlersRef.current.onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
     })
 
     eventSource.addEventListener('run_summary', (event) => {
-      onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
+      handlersRef.current.onDeliveryReady?.(JSON.parse(event.data) as RunSummary)
     })
 
     eventSource.onerror = () => {
@@ -99,11 +116,6 @@ export function useSSE(url: string, options: UseSSEOptions = {}) {
     clearReconnectTimer,
     closeEventSource,
     enabled,
-    onDeliveryReady,
-    onDispatchDecision,
-    onLog,
-    onSkyState,
-    onStats,
     scheduleReconnect,
     url,
   ])

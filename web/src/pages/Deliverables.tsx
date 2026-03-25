@@ -1,262 +1,208 @@
-import React, { useState, useEffect } from 'react';
-import { FileText, Download, Eye, Trash2, Calendar, Clock, HardDrive } from 'lucide-react';
+import { Download, Eye, FileStack, Filter, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
-interface Deliverable {
-  id: string;
-  task_id: string;
-  file_name: string;
-  file_path: string;
-  file_size: number;
-  file_type: string;
-  created_at: string;
-  hero_id: string;
+import type { DeliverableArtifact } from '../types'
+import { apiUrl, fetchDeliverables } from '../utils/api'
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const Deliverables: React.FC = () => {
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'pptx' | 'md' | 'other'>('all');
+function previewable(type: string) {
+  return ['md', 'txt', 'json', 'html', 'pdf'].includes(type)
+}
+
+export default function Deliverables() {
+  const [deliverables, setDeliverables] = useState<DeliverableArtifact[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [fileTypeFilter, setFileTypeFilter] = useState('all')
 
   useEffect(() => {
-    fetchDeliverables();
-  }, []);
+    let alive = true
 
-  const fetchDeliverables = async () => {
-    try {
-      // TODO: 从后端 API 获取
-      // const response = await fetch('/api/deliverables');
-      // const data = await response.json();
-      
-      // Mock 数据（稍后替换为真实数据）
-      const mockData: Deliverable[] = [
-        {
-          id: '1',
-          task_id: 'ppt-task-001',
-          file_name: 'tianli_presentation.pptx',
-          file_path: '/generated_ppts/tianli_presentation.pptx',
-          file_size: 34212,
-          file_type: 'pptx',
-          created_at: new Date().toISOString(),
-          hero_id: 'ppt-creator-hero'
+    const load = async () => {
+      try {
+        const next = await fetchDeliverables(100)
+        if (alive) {
+          setDeliverables(next)
         }
-      ];
-      
-      setDeliverables(mockData);
-    } catch (error) {
-      console.error('获取交付物失败:', error);
-    } finally {
-      setLoading(false);
+      } catch (error) {
+        console.error('Failed to fetch deliverables', error)
+      } finally {
+        if (alive) {
+          setLoading(false)
+        }
+      }
     }
-  };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
+    void load()
 
-  const getFileIcon = (fileType: string) => {
-    switch (fileType) {
-      case 'pptx':
-        return <FileText className="w-5 h-5 text-orange-500" />;
-      case 'md':
-        return <FileText className="w-5 h-5 text-blue-500" />;
-      case 'pdf':
-        return <FileText className="w-5 h-5 text-red-500" />;
-      default:
-        return <FileText className="w-5 h-5 text-gray-500" />;
+    return () => {
+      alive = false
     }
-  };
+  }, [])
 
-  const filteredDeliverables = filter === 'all' 
-    ? deliverables 
-    : deliverables.filter(d => d.file_type === filter);
+  const fileTypes = useMemo(
+    () => ['all', ...Array.from(new Set(deliverables.map((item) => item.fileType))).sort()],
+    [deliverables],
+  )
+
+  const filteredDeliverables = useMemo(() => {
+    return deliverables.filter((item) => {
+      const matchesFileType = fileTypeFilter === 'all' || item.fileType === fileTypeFilter
+      const target = `${item.fileName} ${item.relativePath} ${item.rootName}`.toLowerCase()
+      const matchesSearch = !searchTerm || target.includes(searchTerm.toLowerCase())
+      return matchesFileType && matchesSearch
+    })
+  }, [deliverables, fileTypeFilter, searchTerm])
+
+  const totalSize = deliverables.reduce((sum, item) => sum + item.sizeBytes, 0)
+  const todayCount = deliverables.filter((item) => {
+    const itemDate = new Date(item.modifiedAt).toDateString()
+    return itemDate === new Date().toDateString()
+  }).length
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">交付物管理</h1>
-        <p className="text-gray-600">查看和管理天理系统生成的所有交付物</p>
-      </div>
+    <>
+      <section className="console-kpi-grid">
+        <div className="console-kpi">
+          <div className="console-kpi-label">总交付物</div>
+          <div className="console-kpi-value">{deliverables.length}</div>
+          <div className="console-kpi-copy">来自真实输出目录扫描</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">文件类型数</div>
+          <div className="console-kpi-value">{fileTypes.length - 1}</div>
+          <div className="console-kpi-copy">按扩展名聚合显示</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">总大小</div>
+          <div className="console-kpi-value">{formatFileSize(totalSize)}</div>
+          <div className="console-kpi-copy">仅统计扫描到的真实文件</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">今日新增</div>
+          <div className="console-kpi-value">{todayCount}</div>
+          <div className="console-kpi-copy">以最近修改时间为准</div>
+        </div>
+      </section>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">总交付物</p>
-              <p className="text-2xl font-bold text-gray-900">{deliverables.length}</p>
-            </div>
-            <FileText className="w-8 h-8 text-blue-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">PPT 文件</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {deliverables.filter(d => d.file_type === 'pptx').length}
-              </p>
-            </div>
-            <FileText className="w-8 h-8 text-orange-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">总大小</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {formatFileSize(deliverables.reduce((sum, d) => sum + d.file_size, 0))}
-              </p>
-            </div>
-            <HardDrive className="w-8 h-8 text-green-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">今日生成</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {deliverables.filter(d => {
-                  const today = new Date().toDateString();
-                  return new Date(d.created_at).toDateString() === today;
-                }).length}
-              </p>
-            </div>
-            <Calendar className="w-8 h-8 text-purple-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* 筛选器 */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">交付物列表</h2>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-3 py-1 rounded text-sm ${
-                  filter === 'all' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                全部
-              </button>
-              <button
-                onClick={() => setFilter('pptx')}
-                className={`px-3 py-1 rounded text-sm ${
-                  filter === 'pptx' 
-                    ? 'bg-orange-500 text-white' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                PPT
-              </button>
-              <button
-                onClick={() => setFilter('md')}
-                className={`px-3 py-1 rounded text-sm ${
-                  filter === 'md' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                文档
-              </button>
-            </div>
+      <section className="console-card">
+        <div className="console-card-header">
+          <div>
+            <h3 className="console-card-title">交付物筛选</h3>
+            <p className="console-card-copy">预览只对浏览器可直接打开的文件启用，其余仅提供真实下载。</p>
           </div>
         </div>
 
-        {/* 交付物列表 */}
-        <div className="divide-y divide-gray-200">
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-2 text-gray-600">加载中...</p>
+        <div className="console-grid console-grid-2">
+          <div className="console-field">
+            <label htmlFor="deliverable-search">搜索文件名 / 路径</label>
+            <div className="console-inline">
+              <Search className="h-4 w-4" />
+              <input
+                id="deliverable-search"
+                className="console-input"
+                placeholder="例如 tianli_presentation 或 generated_ppts"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
             </div>
-          ) : filteredDeliverables.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <FileText className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-              <p>暂无交付物</p>
+          </div>
+
+          <div className="console-field">
+            <label htmlFor="deliverable-filter">文件类型</label>
+            <div className="console-inline">
+              <Filter className="h-4 w-4" />
+              <select
+                id="deliverable-filter"
+                className="console-select"
+                value={fileTypeFilter}
+                onChange={(event) => setFileTypeFilter(event.target.value)}
+              >
+                {fileTypes.map((fileType) => (
+                  <option key={fileType} value={fileType}>
+                    {fileType === 'all' ? '全部类型' : fileType.toUpperCase()}
+                  </option>
+                ))}
+              </select>
             </div>
-          ) : (
-            filteredDeliverables.map((deliverable) => (
-              <div key={deliverable.id} className="p-4 hover:bg-gray-50 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4 flex-1">
-                    <div className="flex-shrink-0">
-                      {getFileIcon(deliverable.file_type)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {deliverable.file_name}
-                        </p>
-                        <span className="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-600">
-                          {deliverable.file_type.toUpperCase()}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                        <span className="flex items-center">
-                          <Calendar className="w-3 h-3 mr-1" />
-                          {new Date(deliverable.created_at).toLocaleDateString()}
-                        </span>
-                        <span className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {new Date(deliverable.created_at).toLocaleTimeString()}
-                        </span>
-                        <span className="flex items-center">
-                          <HardDrive className="w-3 h-3 mr-1" />
-                          {formatFileSize(deliverable.file_size)}
-                        </span>
-                      </div>
-                      
-                      <p className="text-xs text-gray-400 mt-1">
-                        任务 ID: {deliverable.task_id} • Hero: {deliverable.hero_id}
-                      </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="console-card">
+        <div className="console-card-header">
+          <div>
+            <h3 className="console-card-title">真实产物文件</h3>
+            <p className="console-card-copy">当前页面不再展示 mock 产物，所有条目都来自后端目录扫描。</p>
+          </div>
+          <span className="console-badge">{filteredDeliverables.length} items</span>
+        </div>
+
+        {loading ? (
+          <div className="console-empty">
+            <FileStack className="h-10 w-10 animate-pulse" />
+            <p>正在扫描产物目录…</p>
+          </div>
+        ) : filteredDeliverables.length === 0 ? (
+          <div className="console-empty">
+            <FileStack className="h-10 w-10" />
+            <p>当前筛选条件下没有文件。</p>
+          </div>
+        ) : (
+          <div className="console-list">
+            {filteredDeliverables.map((item) => (
+              <article className="console-list-item" key={item.id} data-testid="deliverable-item">
+                <div className="console-inline" style={{ justifyContent: 'space-between' }}>
+                  <div className="console-stack" style={{ gap: '0.35rem' }}>
+                    <strong>{item.fileName}</strong>
+                    <div className="console-meta">
+                      <span>{item.rootName}</span>
+                      <span>{item.fileType.toUpperCase()}</span>
+                      <span>{formatFileSize(item.sizeBytes)}</span>
+                      <span>{new Date(item.modifiedAt).toLocaleString('zh-CN')}</span>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <button
-                      className="p-2 text-gray-600 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
-                      title="预览"
-                    >
-                      <Eye className="w-5 h-5" />
-                    </button>
-                    
-                    <button
-                      className="p-2 text-gray-600 hover:text-green-500 hover:bg-green-50 rounded transition-colors"
-                      title="下载"
-                      onClick={() => {
-                        // TODO: 实现下载
-                        alert(`下载：${deliverable.file_name}`);
-                      }}
-                    >
-                      <Download className="w-5 h-5" />
-                    </button>
-                    
-                    <button
-                      className="p-2 text-gray-600 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                      title="删除"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
+                  <span className="console-badge">{item.fileType.toUpperCase()}</span>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
-export default Deliverables;
+                <p className="console-card-copy console-code">{item.relativePath}</p>
+
+                <div className="console-form-actions">
+                  {previewable(item.fileType) ? (
+                    <a
+                      className="console-button console-button-ghost"
+                      href={apiUrl(item.downloadUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Eye className="h-4 w-4" />
+                      预览
+                    </a>
+                  ) : (
+                    <button className="console-button console-button-ghost" type="button" disabled>
+                      <Eye className="h-4 w-4" />
+                      不支持预览
+                    </button>
+                  )}
+                  <a className="console-button console-button-primary" href={apiUrl(item.downloadUrl)}>
+                    <Download className="h-4 w-4" />
+                    下载文件
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  )
+}

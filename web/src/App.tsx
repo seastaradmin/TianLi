@@ -1,438 +1,155 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Boxes,
+  FileStack,
+  History,
+  LayoutDashboard,
+  Orbit,
+  ScrollText,
+  Workflow,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
 
-import { DestinyConsole } from './components/DestinyConsole'
-import { GalaxyPage } from './components/galaxy/GalaxyPage'
-import { ObservatoryDrawer } from './components/observatory/ObservatoryDrawer'
-import Dashboard from './pages/Dashboard'
+import './console.css'
+import { ConsoleShell, type ConsoleNavItem } from './components/console/ConsoleShell'
+import { StarryHomePage } from './components/starry/StarryHomePage'
+import ConversationHistory from './pages/ConversationHistory'
 import DashboardWithCharts from './pages/DashboardWithCharts'
 import Deliverables from './pages/Deliverables'
+import GalaxyLabPage from './pages/GalaxyLabPage'
 import LiveLogs from './pages/LiveLogs'
-import { useSSE } from './hooks'
-import { formatStatusLabel, resolveHeroDisplayName, t } from './i18n'
-import type { Language, UiAnchor } from './types'
-import { useLogStore, useSkyStore, useStatsStore } from './stores'
-import type { HeroState, SkySnapshot, SkillDispatchState, TaskState } from './types'
-import { apiUrl } from './utils/api'
+import SkillManager from './pages/SkillManager'
+import SubAgentsVisualization from './pages/SubAgentsVisualization'
 
-const SSE_URL = apiUrl('/logs')
-const LANGUAGE_STORAGE_KEY = 'tianli-language'
+const NAV_ITEMS: ConsoleNavItem[] = [
+  {
+    path: '/',
+    label: '星空',
+    description: '沉浸式星空界面，与 Hero 互动完成任务。',
+    icon: Orbit,
+  },
+  {
+    path: '/dashboard',
+    label: '仪表盘',
+    description: '任务入口、待裁决区、运行概览和关键趋势。',
+    icon: LayoutDashboard,
+  },
+  {
+    path: '/deliverables',
+    label: '交付结果',
+    description: '查看真实产物、文件类型、体积与下载入口。',
+    icon: FileStack,
+  },
+  {
+    path: '/live-logs',
+    label: '实时日志',
+    description: '历史日志 + SSE 增量流，不再依赖 mock 数据。',
+    icon: ScrollText,
+  },
+  {
+    path: '/conversation-history',
+    label: '对话历史',
+    description: '按 task_id 聚合关键消息，支持跨重启查看。',
+    icon: History,
+  },
+  {
+    path: '/skill-manager',
+    label: '技能管理',
+    description: '真实列出本地 skills、来源和 Hero 关联关系。',
+    icon: Boxes,
+  },
+  {
+    path: '/sub-agents',
+    label: 'Sub-agents',
+    description: '展示当前任务、Hero 轮次、状态和进度。',
+    icon: Workflow,
+  },
+  {
+    path: '/galaxy',
+    label: '实验星图',
+    description: '保留原星图和观测后台，降级为实验入口。',
+    icon: Orbit,
+  },
+]
 
-type SkillTraceState = SkillDispatchState & { taskTitle?: string }
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+function normalizePath(pathname: string) {
+  if (!pathname || pathname === '/') {
+    return '/'
   }
-  return response.json() as Promise<T>
+  return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
 }
 
-function resolveHeroTask(tasks: TaskState[], heroId: string, currentTaskId?: string | null) {
-  if (currentTaskId) {
-    const directTask = tasks.find((task) => task.taskId === currentTaskId)
-    if (directTask) {
-      return directTask
-    }
+function renderRoute(pathname: string) {
+  switch (pathname) {
+    case '/':
+      return <StarryHomePage />
+    case '/dashboard':
+      return <DashboardWithCharts />
+    case '/deliverables':
+      return <Deliverables />
+    case '/live-logs':
+      return <LiveLogs />
+    case '/conversation-history':
+      return <ConversationHistory />
+    case '/skill-manager':
+      return <SkillManager />
+    case '/sub-agents':
+      return <SubAgentsVisualization />
+    case '/galaxy':
+      return <GalaxyLabPage />
+    default:
+      return null
   }
-  return tasks.find((task) => task.selectedHeroIds.includes(heroId)) ?? null
 }
 
-function collectHeroSkillDispatches(tasks: TaskState[], heroId: string, preferredTaskId?: string | null): SkillTraceState[] {
-  return tasks
-    .flatMap((task) =>
-      (task.skillDispatches ?? [])
-        .filter((skill) => skill.heroId === heroId && skill.status === 'applied')
-        .map((skill) => ({ ...skill, taskTitle: task.title, taskId: task.taskId })),
-    )
-    .sort((left, right) => {
-      const leftPreferred = preferredTaskId && left.taskId === preferredTaskId ? 1 : 0
-      const rightPreferred = preferredTaskId && right.taskId === preferredTaskId ? 1 : 0
-      if (leftPreferred !== rightPreferred) {
-        return rightPreferred - leftPreferred
-      }
-      const leftCompleted = left.executionStatus === 'completed' ? 1 : 0
-      const rightCompleted = right.executionStatus === 'completed' ? 1 : 0
-      return rightCompleted - leftCompleted
-    })
-}
-
-function App() {
-  const logs = useLogStore((state) => state.logs)
-  const addLog = useLogStore((state) => state.addLog)
-  const addLogs = useLogStore((state) => state.addLogs)
-  const clearLogs = useLogStore((state) => state.clearLogs)
-
-  const stats = useStatsStore((state) => ({
-    status: state.status,
-    totalSteps: state.totalSteps,
-    earlyExits: state.earlyExits,
-    l1Passes: state.l1Passes,
-    l2Checks: state.l2Checks,
-    activeHeroes: state.activeHeroes,
-    activeTasks: state.activeTasks,
-  }))
-  const hydrateStats = useStatsStore((state) => state.hydrate)
-
-  const heroes = useSkyStore((state) => state.heroes)
-  const tasks = useSkyStore((state) => state.tasks)
-  const judgmentQueue = useSkyStore((state) => state.judgmentQueue)
-  const flows = useSkyStore((state) => state.flows)
-  const runSummary = useSkyStore((state) => state.runSummary)
-  const selectedNodeId = useSkyStore((state) => state.selectedNodeId)
-  const hoverHudNodeId = useSkyStore((state) => state.hoverHudNodeId)
-  const hoverHudAnchor = useSkyStore((state) => state.hoverHudAnchor)
-  const isObservatoryOpen = useSkyStore((state) => state.isObservatoryOpen)
-  const drawerOrigin = useSkyStore((state) => state.drawerOrigin)
-  const hydrateSky = useSkyStore((state) => state.hydrate)
-  const selectNode = useSkyStore((state) => state.selectNode)
-  const setHoverHudNode = useSkyStore((state) => state.setHoverHudNode)
-  const openObservatory = useSkyStore((state) => state.openObservatory)
-  const closeObservatory = useSkyStore((state) => state.closeObservatory)
-
-  const [taskInput, setTaskInput] = useState('')
-  const [pinnedHeroInput, setPinnedHeroInput] = useState('')
-  const [judgmentInput, setJudgmentInput] = useState('')
-  const [pendingIssuedTaskId, setPendingIssuedTaskId] = useState<string | null>(null)
-  const [autoFocusTarget, setAutoFocusTarget] = useState<{ nodeId: string; token: number } | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [language, setLanguage] = useState<Language>(() => {
-    if (typeof window === 'undefined') {
-      return 'zh'
-    }
-    const persisted = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-    return persisted === 'en' ? 'en' : 'zh'
-  })
-
-  const { isConnected } = useSSE(SSE_URL, {
-    enabled: true,
-    onLog: addLog,
-    onStats: hydrateStats,
-    onSkyState: (snapshot) => {
-      hydrateSky(snapshot)
-      hydrateStats(snapshot.stats)
-    },
-  })
-
-  const syncSkySnapshot = useCallback(async () => {
-    const snapshot = await fetchJson<SkySnapshot>(apiUrl('/status'))
-    hydrateSky(snapshot)
-    hydrateStats(snapshot.stats)
-    return snapshot
-  }, [hydrateSky, hydrateStats])
-
-  useEffect(() => {
-    const loadSnapshot = async () => {
-      try {
-        const snapshot = await fetchJson<SkySnapshot>(apiUrl('/status'))
-        hydrateSky(snapshot)
-        hydrateStats(snapshot.stats)
-        clearLogs()
-        addLogs(snapshot.logs)
-      } catch (error) {
-        addLog({
-          id: `boot-${Date.now()}`,
-          time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-          level: 'WARN',
-          module: 'UI',
-          msg: t(language, 'load_snapshot_failed', { error: String(error) }),
-          msgZh: t('zh', 'load_snapshot_failed', { error: String(error) }),
-          msgEn: t('en', 'load_snapshot_failed', { error: String(error) }),
-        })
-      }
-    }
-
-    void loadSnapshot()
-  }, [addLog, addLogs, clearLogs, hydrateSky, hydrateStats])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
-  }, [language])
-
-  useEffect(() => {
-    if (!selectedNodeId) {
-      return
-    }
-
-    const isPendingIssuedSelection = pendingIssuedTaskId === selectedNodeId
-    const nodeStillExists =
-      heroes.some((hero) => hero.heroId === selectedNodeId) || tasks.some((task) => task.taskId === selectedNodeId)
-
-    if (!nodeStillExists && !isPendingIssuedSelection) {
-      selectNode(null)
-      setHoverHudNode(null, null)
-    }
-  }, [heroes, pendingIssuedTaskId, selectedNodeId, selectNode, setHoverHudNode, tasks])
-
-  useEffect(() => {
-    if (!hoverHudNodeId) {
-      return
-    }
-
-    const isPendingIssuedHover = pendingIssuedTaskId === hoverHudNodeId
-    const nodeStillExists =
-      heroes.some((hero) => hero.heroId === hoverHudNodeId) || tasks.some((task) => task.taskId === hoverHudNodeId)
-
-    if (!nodeStillExists && !isPendingIssuedHover) {
-      setHoverHudNode(null, null)
-    }
-  }, [heroes, hoverHudNodeId, pendingIssuedTaskId, setHoverHudNode, tasks])
-
-  useEffect(() => {
-    if (!pendingIssuedTaskId) {
-      return
-    }
-
-    if (tasks.some((task) => task.taskId === pendingIssuedTaskId)) {
-      setPendingIssuedTaskId(null)
-    }
-  }, [pendingIssuedTaskId, tasks])
-
-  const selectedHero = heroes.find((hero) => hero.heroId === selectedNodeId) ?? null
-  const selectedTask = tasks.find((task) => task.taskId === selectedNodeId) ?? null
-  const fallbackJudgmentTask = judgmentQueue[0] ?? tasks.find((task) => task.status === 'judgment_pending') ?? null
-  const selectedHeroTask = selectedHero ? resolveHeroTask(tasks, selectedHero.heroId, selectedHero.currentTaskId) : null
-  const latestTask = tasks[0] ?? null
-  const focusTask = selectedTask ?? selectedHeroTask ?? fallbackJudgmentTask ?? latestTask
-  const focusHero =
-    selectedHero ??
-    (focusTask?.primaryHeroId ? heroes.find((hero) => hero.heroId === focusTask.primaryHeroId) ?? null : heroes[0] ?? null)
-  const focusKind: 'hero' | 'task' = selectedHero ? 'hero' : focusTask ? 'task' : focusHero ? 'hero' : 'task'
-  const consultHeroes = useMemo(
-    () =>
-      (focusTask?.consultHeroIds ?? [])
-        .map((heroId) => heroes.find((hero) => hero.heroId === heroId) ?? null)
-        .filter((hero): hero is HeroState => hero !== null),
-    [focusTask, heroes],
+export default function App() {
+  const [pathname, setPathname] = useState(() =>
+    typeof window === 'undefined' ? '/' : normalizePath(window.location.pathname),
   )
-  const focusSkillDispatches: SkillTraceState[] = selectedHero
-    ? collectHeroSkillDispatches(tasks, selectedHero.heroId, selectedHeroTask?.taskId)
-    : (focusTask?.skillDispatches ?? [])
-        .filter((skill) => skill.status === 'applied')
-        .map((skill) => ({ ...skill, taskTitle: focusTask?.title }))
-  const recentLogs = useMemo(() => logs.slice(-10).reverse(), [logs])
-  const activeJudgmentTarget = focusTask?.status === 'judgment_pending' ? focusTask : fallbackJudgmentTask
-  const destinyConsoleTask =
-    (pendingIssuedTaskId ? tasks.find((task) => task.taskId === pendingIssuedTaskId) ?? null : null) ?? selectedTask
-  const destinyConsoleHero =
-    destinyConsoleTask?.primaryHeroId
-      ? heroes.find((hero) => hero.heroId === destinyConsoleTask.primaryHeroId) ?? null
-      : null
-  const destinyConsoleSummary = destinyConsoleTask
-    ? {
-        title: destinyConsoleTask.title,
-        subtitle: `${formatStatusLabel(destinyConsoleTask.status, language)} · ${
-          destinyConsoleTask.primaryHeroId
-            ? t(language, 'primary_hero', {
-                hero: destinyConsoleHero
-                  ? resolveHeroDisplayName(destinyConsoleHero, language)
-                  : destinyConsoleTask.primaryHeroId,
-              })
-            : t(language, 'routing_hero')
-        }`,
-      }
-    : null
 
-  const handleIssueDestiny = async () => {
-    const content = taskInput.trim()
-    if (!content) {
+  useEffect(() => {
+    const handlePopState = () => setPathname(normalizePath(window.location.pathname))
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    const current = NAV_ITEMS.find((item) => item.path === pathname)
+    document.title = current ? `${current.label} | TianLi Console` : 'TianLi Console'
+  }, [pathname])
+
+  const navigate = (nextPath: string) => {
+    const normalized = normalizePath(nextPath)
+    if (normalized === pathname) {
       return
     }
-
-    setIsSubmitting(true)
-    try {
-      const response = await fetchJson<{ taskId: string }>(apiUrl('/run/start'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task: content,
-          pinnedHeroIds: pinnedHeroInput
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean),
-          maxFanout: 3,
-          dispatchMode: 'hybrid',
-          collaborationMode: 'primary_consult',
-        }),
-      })
-
-      setPendingIssuedTaskId(response.taskId)
-      setAutoFocusTarget({ nodeId: response.taskId, token: Date.now() })
-
-      try {
-        await syncSkySnapshot()
-      } catch (snapshotError) {
-        console.warn('[App] failed to sync sky snapshot after issuing destiny', snapshotError)
-      }
-
-      selectNode(response.taskId)
-      setHoverHudNode(response.taskId, null)
-      openObservatory(null)
-      setTaskInput('')
-      setJudgmentInput('')
-      addLog({
-        id: `start-${Date.now()}`,
-        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-        level: 'INFO',
-        module: 'UI',
-        msg: t(language, 'destiny_ignited', { title: content }),
-        msgZh: t('zh', 'destiny_ignited', { title: content }),
-        msgEn: t('en', 'destiny_ignited', { title: content }),
-      })
-    } catch (error) {
-      setPendingIssuedTaskId(null)
-      addLog({
-        id: `start-${Date.now()}`,
-        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-        level: 'ERROR',
-        module: 'UI',
-        msg: t(language, 'issue_destiny_failed', { error: String(error) }),
-        msgZh: t('zh', 'issue_destiny_failed', { error: String(error) }),
-        msgEn: t('en', 'issue_destiny_failed', { error: String(error) }),
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
+    window.history.pushState({}, '', normalized)
+    setPathname(normalized)
   }
 
-  const handleVerdict = async (verdict: 'approve' | 'reject') => {
-    if (!activeJudgmentTarget) {
-      return
-    }
-
-    setIsSubmitting(true)
-    try {
-      await fetchJson(apiUrl('/run/verdict'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId: activeJudgmentTarget.taskId,
-          verdict,
-          judgmentNote: judgmentInput,
-        }),
-      })
-      setJudgmentInput('')
-      selectNode(activeJudgmentTarget.taskId)
-      setHoverHudNode(activeJudgmentTarget.taskId, hoverHudAnchor)
-    } catch (error) {
-      addLog({
-        id: `verdict-${Date.now()}`,
-        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-        level: 'ERROR',
-        module: 'UI',
-        msg: t(language, 'verdict_submit_failed', { error: String(error) }),
-        msgZh: t('zh', 'verdict_submit_failed', { error: String(error) }),
-        msgEn: t('en', 'verdict_submit_failed', { error: String(error) }),
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
+  const route = renderRoute(pathname)
+  if (!route) {
+    return (
+      <ConsoleShell currentPath="/" navItems={NAV_ITEMS} onNavigate={navigate}>
+        <div className="console-card console-empty">
+          <h3 className="console-card-title">这个页面不存在。</h3>
+          <p className="console-card-copy">
+            Formal console routes are mounted under the configured cockpit pages. Use the navigation to return to a live surface.
+          </p>
+          <button className="console-button console-button-primary" onClick={() => navigate('/')}>
+            返回仪表盘
+          </button>
+        </div>
+      </ConsoleShell>
+    )
   }
 
-  const handleRefreshSkills = async () => {
-    try {
-      await fetchJson(apiUrl('/skills/refresh'), { method: 'POST' })
-      addLog({
-        id: `refresh-${Date.now()}`,
-        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-        level: 'INFO',
-        module: 'UI',
-        msg: t(language, 'refresh_sources_success'),
-        msgZh: t('zh', 'refresh_sources_success'),
-        msgEn: t('en', 'refresh_sources_success'),
-      })
-    } catch (error) {
-      addLog({
-        id: `refresh-${Date.now()}`,
-        time: new Date().toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US'),
-        level: 'WARN',
-        module: 'UI',
-        msg: t(language, 'refresh_sources_failed', { error: String(error) }),
-        msgZh: t('zh', 'refresh_sources_failed', { error: String(error) }),
-        msgEn: t('en', 'refresh_sources_failed', { error: String(error) }),
-      })
-    }
-  }
-
-  const handleGalaxySelect = (nodeId: string | null, anchor?: UiAnchor | null) => {
-    selectNode(nodeId)
-    setHoverHudNode(nodeId, anchor ?? null)
-  }
-
-  const handleDrawerSelect = (nodeId: string | null) => {
-    selectNode(nodeId)
-    setHoverHudNode(nodeId, undefined)
-  }
-
-  const handleOpenObservatory = (origin?: UiAnchor | null) => {
-    openObservatory(hoverHudAnchor ?? origin ?? null)
-  }
-
-  const handleToggleLanguage = () => {
-    setLanguage((current) => (current === 'zh' ? 'en' : 'zh'))
+  if (pathname === '/galaxy') {
+    return route
   }
 
   return (
-    <div className={`app-shell ${isObservatoryOpen ? 'app-shell-drawer-open' : ''}`}>
-      <div className="app-orb app-orb-a" />
-      <div className="app-orb app-orb-b" />
-      <div className="app-grid" />
-
-      <GalaxyPage
-        heroes={heroes}
-        tasks={tasks}
-        flows={flows}
-        selectedNodeId={selectedNodeId}
-        hoverHudNodeId={hoverHudNodeId}
-        hoverHudAnchor={hoverHudAnchor}
-        autoFocusTarget={autoFocusTarget}
-        isConnected={isConnected}
-        isObservatoryOpen={isObservatoryOpen}
-        language={language}
-        onToggleLanguage={handleToggleLanguage}
-        onSelectNode={handleGalaxySelect}
-        onOpenObservatory={handleOpenObservatory}
-      />
-
-      <ObservatoryDrawer
-        isOpen={isObservatoryOpen}
-        selectedNodeId={selectedNodeId}
-        drawerOrigin={drawerOrigin}
-        language={language}
-        focusKind={focusKind}
-        focusTask={focusTask}
-        focusHero={focusHero}
-        consultHeroes={consultHeroes}
-        skillDispatches={focusSkillDispatches}
-        logs={recentLogs}
-        stats={stats}
-        heroes={heroes}
-        tasks={tasks}
-        runSummary={runSummary}
-        judgmentInput={judgmentInput}
-        isSubmitting={isSubmitting}
-        onToggleLanguage={handleToggleLanguage}
-        onClose={closeObservatory}
-        onSelectNode={handleDrawerSelect}
-        onJudgmentInputChange={setJudgmentInput}
-        onVerdict={handleVerdict}
-      />
-
-      <DestinyConsole
-        language={language}
-        taskInput={taskInput}
-        pinnedHeroInput={pinnedHeroInput}
-        isSubmitting={isSubmitting}
-        statusSummary={destinyConsoleSummary}
-        onTaskInputChange={setTaskInput}
-        onPinnedHeroInputChange={setPinnedHeroInput}
-        onIssueDestiny={handleIssueDestiny}
-        onRefreshSkills={handleRefreshSkills}
-      />
-    </div>
+    <ConsoleShell currentPath={pathname} navItems={NAV_ITEMS} onNavigate={navigate}>
+      {route}
+    </ConsoleShell>
   )
 }
-
-export default App

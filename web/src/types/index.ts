@@ -165,6 +165,17 @@ export interface RunSummary {
   deliverySummaryEn?: string
 }
 
+export interface DeliverableArtifact {
+  id: string
+  fileName: string
+  relativePath: string
+  rootName: string
+  fileType: string
+  sizeBytes: number
+  modifiedAt: string
+  downloadUrl: string
+}
+
 export interface SkySnapshot {
   status: Status
   stats: Stats

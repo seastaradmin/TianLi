@@ -1,321 +1,210 @@
-import React, { useState, useEffect } from 'react';
-import { Puzzle, Download, Trash2, Search, Filter, ExternalLink, Package } from 'lucide-react';
+import { Boxes, Link2, RefreshCw, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
-interface Skill {
-  name: string;
-  description: string;
-  installed: boolean;
-  installs?: number;
-  source?: string;
-  category?: string;
-}
+import { fetchSkills, refreshSkills, type SkillInventoryItem } from '../utils/api'
 
-const SkillManager: React.FC = () => {
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState<'all' | 'installed' | 'available'>('all');
+export default function SkillManager() {
+  const [skills, setSkills] = useState<SkillInventoryItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filterMode, setFilterMode] = useState<'all' | 'installed' | 'missing'>('all')
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadSkills = async () => {
+    const response = await fetchSkills()
+    setSkills(response.items)
+  }
 
   useEffect(() => {
-    fetchSkills();
-  }, []);
+    let alive = true
 
-  const fetchSkills = async () => {
-    try {
-      // TODO: 从后端 API 获取
-      // const response = await fetch('http://localhost:8000/api/skills');
-      // const data = await response.json();
-      
-      // Mock 数据 - 已安装的 skills
-      const mockSkills: Skill[] = [
-        {
-          name: 'pptx',
-          description: '创建和编辑 PowerPoint 演示文稿',
-          installed: true,
-          installs: 44000,
-          source: 'anthropics/skills',
-          category: '文档'
-        },
-        {
-          name: 'find-skills',
-          description: '搜索和安装 ClawHub 技能',
-          installed: true,
-          installs: 15000,
-          source: 'vercel-labs/agent-skills',
-          category: '工具'
-        },
-        {
-          name: 'database-design',
-          description: '数据库设计和最佳实践',
-          installed: true,
-          installs: 173,
-          source: 'skillcreatorai/ai-agent-skills',
-          category: '开发'
-        },
-        {
-          name: 'mysql-best-practices',
-          description: 'MySQL 最佳实践指南',
-          installed: true,
-          installs: 890,
-          source: 'mindrally/skills',
-          category: '开发'
-        },
-        {
-          name: 'ui-ux-pro-max-skill',
-          description: '专业 UI/UX 设计（161 条推理规则，67 种 UI 样式）',
-          installed: true,
-          installs: 49000,
-          source: 'nextlevelbuilder/ui-ux-pro-max-skill',
-          category: '设计'
-        },
-        {
-          name: 'e2e-testing-patterns',
-          description: '端到端测试模式和最佳实践',
-          installed: true,
-          installs: 8200,
-          source: 'wshobson/agents',
-          category: '测试'
-        },
-        {
-          name: 'web-search-pro',
-          description: '专业网页搜索和研究',
-          installed: false,
-          installs: 5600,
-          source: 'Zjianru/web-search-pro',
-          category: '研究'
-        },
-        {
-          name: 'code-review',
-          description: '代码审查和最佳实践',
-          installed: false,
-          installs: 960,
-          source: 'skillcreatorai/ai-agent-skills',
-          category: '开发'
+    const load = async () => {
+      try {
+        const response = await fetchSkills()
+        if (alive) {
+          setSkills(response.items)
         }
-      ];
-      
-      setSkills(mockSkills);
-    } catch (error) {
-      console.error('获取技能列表失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const installSkill = async (skillName: string) => {
-    try {
-      // TODO: 调用后端 API 安装技能
-      // await fetch(`http://localhost:8000/api/skills/${skillName}/install`, { method: 'POST' });
-      
-      alert(`正在安装技能：${skillName}\n\n命令：npx skills add ${skillName} -g -y`);
-      
-      // 更新状态
-      setSkills(skills.map(s => 
-        s.name === skillName ? { ...s, installed: true } : s
-      ));
-    } catch (error) {
-      console.error('安装技能失败:', error);
-      alert('安装失败：' + error);
-    }
-  };
-
-  const uninstallSkill = async (skillName: string) => {
-    try {
-      if (!confirm(`确定要卸载技能 "${skillName}" 吗？`)) {
-        return;
+      } catch (error) {
+        console.error('Failed to load skills', error)
+      } finally {
+        if (alive) {
+          setLoading(false)
+        }
       }
-      
-      // TODO: 调用后端 API 卸载技能
-      // await fetch(`http://localhost:8000/api/skills/${skillName}/uninstall`, { method: 'POST' });
-      
-      alert(`正在卸载技能：${skillName}`);
-      
-      // 更新状态
-      setSkills(skills.map(s => 
-        s.name === skillName ? { ...s, installed: false } : s
-      ));
-    } catch (error) {
-      console.error('卸载技能失败:', error);
-      alert('卸载失败：' + error);
     }
-  };
 
-  const filteredSkills = skills.filter(skill => {
-    const categoryMatch = 
-      filterCategory === 'all' ||
-      (filterCategory === 'installed' && skill.installed) ||
-      (filterCategory === 'available' && !skill.installed);
-    
-    const searchMatch = searchTerm === '' || 
-      skill.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      skill.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      skill.category?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    return categoryMatch && searchMatch;
-  });
+    void load()
 
-  const stats = {
-    total: skills.length,
-    installed: skills.filter(s => s.installed).length,
-    available: skills.filter(s => !skill.installed).length,
-    totalInstalls: skills.reduce((sum, s) => sum + (s.installs || 0), 0)
-  };
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const filteredSkills = useMemo(() => {
+    return skills.filter((skill) => {
+      const matchesMode =
+        filterMode === 'all' ||
+        (filterMode === 'installed' && skill.installed) ||
+        (filterMode === 'missing' && !skill.installed)
+      const haystack = `${skill.skill_id} ${skill.name} ${skill.description} ${skill.hero_names.join(' ')}`.toLowerCase()
+      const matchesSearch = !searchTerm || haystack.includes(searchTerm.toLowerCase())
+      return matchesMode && matchesSearch
+    })
+  }, [filterMode, searchTerm, skills])
+
+  const stats = useMemo(
+    () => ({
+      total: skills.length,
+      installed: skills.filter((skill) => skill.installed).length,
+      missing: skills.filter((skill) => !skill.installed).length,
+      linked: skills.filter((skill) => skill.hero_count > 0).length,
+    }),
+    [skills],
+  )
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await refreshSkills()
+      await loadSkills()
+    } catch (error) {
+      console.error('Failed to refresh skills', error)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">技能管理</h1>
-        <p className="text-gray-600">管理天理系统的技能库</p>
-      </div>
+    <>
+      <section className="console-kpi-grid">
+        <div className="console-kpi">
+          <div className="console-kpi-label">总技能数</div>
+          <div className="console-kpi-value">{stats.total}</div>
+          <div className="console-kpi-copy">本地 skill 根目录 + Hero 关联合集</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">已安装</div>
+          <div className="console-kpi-value">{stats.installed}</div>
+          <div className="console-kpi-copy">可被本地 SKILL.md 真实解析</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">缺失引用</div>
+          <div className="console-kpi-value">{stats.missing}</div>
+          <div className="console-kpi-copy">Hero 链接了 skill，但本地未解析到</div>
+        </div>
+        <div className="console-kpi">
+          <div className="console-kpi-label">Hero 关联</div>
+          <div className="console-kpi-value">{stats.linked}</div>
+          <div className="console-kpi-copy">至少被一个 Hero 关联的 skill</div>
+        </div>
+      </section>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">总技能数</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-            </div>
-            <Puzzle className="w-8 h-8 text-purple-500" />
+      <section className="console-card">
+        <div className="console-card-header">
+          <div>
+            <h3 className="console-card-title">技能目录</h3>
+            <p className="console-card-copy">第一阶段只做真实读取与刷新，不提供假安装成功按钮。</p>
           </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">已安装</p>
-              <p className="text-2xl font-bold text-green-600">{stats.installed}</p>
-            </div>
-            <Download className="w-8 h-8 text-green-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">可安装</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.available}</p>
-            </div>
-            <Package className="w-8 h-8 text-blue-500" />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">总安装量</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalInstalls.toLocaleString()}</p>
-            </div>
-            <ExternalLink className="w-8 h-8 text-orange-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* 搜索和筛选 */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center space-x-2 flex-1">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="搜索技能..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value as any)}
-                className="border border-gray-300 rounded text-sm px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">全部技能</option>
-                <option value="installed">已安装</option>
-                <option value="available">可安装</option>
-              </select>
-            </div>
-          </div>
+          <button
+            className="console-button console-button-primary"
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            刷新来源
+          </button>
         </div>
 
-        {/* 技能列表 */}
-        <div className="divide-y divide-gray-200">
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-2 text-gray-600">加载中...</p>
-            </div>
-          ) : filteredSkills.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <Puzzle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-              <p>暂无技能</p>
-            </div>
-          ) : (
-            filteredSkills.map((skill) => (
-              <div key={skill.name} className="p-4 hover:bg-gray-50 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{skill.name}</h3>
-                      <span className={`px-2 py-0.5 text-xs rounded ${
-                        skill.installed
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {skill.installed ? '已安装' : '可安装'}
+        <div className="console-grid console-grid-2">
+          <div className="console-field">
+            <label htmlFor="skill-search">搜索 skill</label>
+            <input
+              id="skill-search"
+              className="console-input"
+              placeholder="搜索 skill 名称、描述或 Hero"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </div>
+
+          <div className="console-field">
+            <label htmlFor="skill-filter">状态过滤</label>
+            <select
+              id="skill-filter"
+              className="console-select"
+              value={filterMode}
+              onChange={(event) => setFilterMode(event.target.value as 'all' | 'installed' | 'missing')}
+            >
+              <option value="all">全部</option>
+              <option value="installed">已安装</option>
+              <option value="missing">缺失引用</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section className="console-card">
+        <div className="console-card-header">
+          <div>
+            <h3 className="console-card-title">真实 skill 列表</h3>
+            <p className="console-card-copy">这里显示的不是商店演示数据，而是本地解析结果与 Hero 的实际链接关系。</p>
+          </div>
+          <span className="console-badge">{filteredSkills.length} results</span>
+        </div>
+
+        {loading ? (
+          <div className="console-empty">
+            <Boxes className="h-10 w-10 animate-pulse" />
+            <p>正在读取 skill 根目录…</p>
+          </div>
+        ) : filteredSkills.length === 0 ? (
+          <div className="console-empty">
+            <Boxes className="h-10 w-10" />
+            <p>当前没有符合条件的 skill。</p>
+          </div>
+        ) : (
+          <div className="console-list">
+            {filteredSkills.map((skill) => (
+              <article className="console-list-item" data-testid="skill-item" key={skill.skill_id}>
+                <div className="console-inline" style={{ justifyContent: 'space-between' }}>
+                  <div className="console-stack" style={{ gap: '0.35rem' }}>
+                    <strong>{skill.name}</strong>
+                    <div className="console-meta">
+                      <span className="console-code">{skill.skill_id}</span>
+                      <span className="console-badge" data-tone={skill.installed ? 'success' : 'warning'}>
+                        {skill.installed ? '已安装' : '缺失引用'}
                       </span>
-                      {skill.category && (
-                        <span className="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-600">
-                          {skill.category}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <p className="text-sm text-gray-600 mb-2">{skill.description}</p>
-                    
-                    <div className="flex items-center space-x-4 text-xs text-gray-500">
-                      <span className="flex items-center">
-                        <Download className="w-3 h-3 mr-1" />
-                        {skill.installs?.toLocaleString()} 次安装
-                      </span>
-                      {skill.source && (
-                        <span className="flex items-center">
-                          <ExternalLink className="w-3 h-3 mr-1" />
-                          {skill.source}
-                        </span>
-                      )}
                     </div>
                   </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    {skill.installed ? (
-                      <button
-                        onClick={() => uninstallSkill(skill.name)}
-                        className="flex items-center px-3 py-2 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        卸载
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => installSkill(skill.name)}
-                        className="flex items-center px-3 py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        安装
-                      </button>
-                    )}
-                  </div>
+                  <span className="console-badge">{skill.hero_count} Heroes</span>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
-export default SkillManager;
+                <p className="console-card-copy">{skill.description}</p>
+                <div className="console-meta">
+                  <span className="console-code">{skill.source}</span>
+                </div>
+
+                <div className="console-chip-row" style={{ marginTop: '0.85rem' }}>
+                  {skill.hero_names.length > 0 ? (
+                    skill.hero_names.map((heroName) => (
+                      <span className="console-pill" key={`${skill.skill_id}-${heroName}`}>
+                        <Link2 className="h-4 w-4" />
+                        {heroName}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="console-pill">
+                      <Sparkles className="h-4 w-4" />
+                      当前没有 Hero 关联
+                    </span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  )
+}

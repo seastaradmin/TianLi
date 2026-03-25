@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>天理 · 星空</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+      #stars-container { position: fixed; inset: 0; overflow: hidden; }
+      .star {
+        position: absolute;
+        border-radius: 50%;
+        background: white;
+        animation: twinkle 2s infinite;
+      }
+      @keyframes twinkle {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+      #input-area {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(500px, 80vw);
+        z-index: 10;
+      }
+      #input-area input {
+        width: 100%;
+        padding: 14px 20px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 999px;
+        color: #fff;
+        font-size: 15px;
+        outline: none;
+        backdrop-filter: blur(10px);
+      }
+      #drawer {
+        position: fixed;
+        top: 0;
+        right: -450px;
+        width: 400px;
+        height: 100vh;
+        background: #1a1a2e;
+        border-left: 1px solid rgba(255,255,255,0.1);
+        z-index: 100;
+        transition: right 0.3s ease;
+        display: flex;
+        flex-direction: column;
+      }
+      #drawer.open { right: 0; }
+      .drawer-header {
+        padding: 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .drawer-header h2 { color: #fff; font-size: 18px; }
+      .drawer-header button {
+        background: none;
+        border: none;
+        color: #888;
+        font-size: 24px;
+        cursor: pointer;
+      }
+      .drawer-content { flex: 1; overflow-y: auto; padding: 20px; }
+      .deliverable {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .deliverable h3 { color: #fff; font-size: 14px; margin-bottom: 8px; }
+      .deliverable p { color: #888; font-size: 12px; margin-bottom: 12px; }
+      .deliverable button {
+        background: #4a90d9;
+        border: none;
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 99;
+        display: none;
+      }
+      #overlay.show { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="stars-container"></div>
+    
+    <div id="input-area">
+      <input type="text" id="task-input" placeholder="输入任务..." />
+    </div>
+    
+    <div id="overlay" onclick="closeDrawer()"></div>
+    
+    <div id="drawer">
+      <div class="drawer-header">
+        <h2>✅ 任务完成</h2>
+        <button onclick="closeDrawer()">×</button>
+      </div>
+      <div class="drawer-content" id="deliverables-list"></div>
+    </div>
+    
+    <script>
+      // 生成星星
+      const container = document.getElementById('stars-container');
+      const starCount = 300;
+      const colors = ['#ffffff', '#ffe4c4', '#add8e6', '#ffb6c1', '#ffd700'];
+      
+      for (let i = 0; i < starCount; i++) {
+        const star = document.createElement('div');
+        star.className = 'star';
+        
+        // 随机位置
+        const x = Math.random() * 100;
+        const y = Math.random() * 100;
+        
+        // 随机大小 (3-8px)
+        const size = 3 + Math.random() * 5;
+        
+        // 随机颜色
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        
+        // 随机动画延迟
+        const delay = Math.random() * 2;
+        
+        star.style.left = x + '%';
+        star.style.top = y + '%';
+        star.style.width = size + 'px';
+        star.style.height = size + 'px';
+        star.style.background = color;
+        star.style.animationDelay = delay + 's';
+        star.style.boxShadow = `0 0 ${size * 2}px ${color}`;
+        
+        container.appendChild(star);
+      }
+      
+      // 输入框功能
+      const input = document.getElementById('task-input');
+      const drawer = document.getElementById('drawer');
+      const overlay = document.getElementById('overlay');
+      const deliverablesList = document.getElementById('deliverables-list');
+      
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+          console.log('任务:', input.value);
+          input.value = '';
+          
+          // 模拟任务完成
+          setTimeout(() => {
+            showDeliverables();
+          }, 2000);
+        }
+      });
+      
+      function showDeliverables() {
+        deliverablesList.innerHTML = `
+          <div class="deliverable">
+            <h3>📄 产品需求文档_v1.md</h3>
+            <p>类型：Markdown | 大小：24 KB</p>
+            <p>提供者：ProductHero ⭐⭐⭐⭐⭐</p>
+            <button onclick="alert('下载：产品需求文档_v1.md')">下载</button>
+          </div>
+          <div class="deliverable">
+            <h3>📊 市场分析报告.xlsx</h3>
+            <p>类型：Excel | 大小：1.2 MB</p>
+            <p>提供者：DataHero ⭐⭐⭐⭐</p>
+            <button onclick="alert('下载：市场分析报告.xlsx')">下载</button>
+          </div>
+          <div class="deliverable">
+            <h3>🐍 main.py</h3>
+            <p>类型：Python | 大小：8 KB</p>
+            <p>提供者：CodeHero ⭐⭐⭐⭐⭐</p>
+            <button onclick="alert('下载：main.py')">下载</button>
+          </div>
+        `;
+        drawer.classList.add('open');
+        overlay.classList.add('show');
+      }
+      
+      function closeDrawer() {
+        drawer.classList.remove('open');
+        overlay.classList.remove('show');
+      }
+    </script>
+  </body>
+</html>

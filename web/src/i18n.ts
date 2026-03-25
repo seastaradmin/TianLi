@@ -43,6 +43,13 @@ type MessageKey =
   | 'task_board'
   | 'task_related_heroes'
   | 'delivery_results'
+  | 'deliverable_files'
+  | 'deliverable_files_empty'
+  | 'deliverable_files_loading'
+  | 'deliverable_files_error'
+  | 'download_file'
+  | 'file_location'
+  | 'updated_at'
   | 'delivery_result_empty'
   | 'delivery_summary_title'
   | 'delivery_team'
@@ -143,6 +150,13 @@ const MESSAGES: Record<Language, Record<MessageKey, string>> = {
     task_board: '任务观测',
     task_related_heroes: '当前任务星使',
     delivery_results: '交付结果',
+    deliverable_files: '产物文件',
+    deliverable_files_empty: '输出目录里还没有可展示的产物文件。',
+    deliverable_files_loading: '正在检索最新产物文件…',
+    deliverable_files_error: '产物文件加载失败：{error}',
+    download_file: '下载文件',
+    file_location: '位置',
+    updated_at: '更新于',
     delivery_result_empty: '当前任务还没有形成可读的交付结果。',
     delivery_summary_title: '交付摘要',
     delivery_team: '交付编队',
@@ -242,6 +256,13 @@ const MESSAGES: Record<Language, Record<MessageKey, string>> = {
     task_board: 'Task Board',
     task_related_heroes: 'Task Heroes',
     delivery_results: 'Delivery Results',
+    deliverable_files: 'Deliverable Files',
+    deliverable_files_empty: 'No deliverable files are available in the output directories yet.',
+    deliverable_files_loading: 'Loading the latest deliverable files…',
+    deliverable_files_error: 'Failed to load deliverable files: {error}',
+    download_file: 'Download file',
+    file_location: 'Location',
+    updated_at: 'Updated',
     delivery_result_empty: 'This task has not produced a readable delivery yet.',
     delivery_summary_title: 'Delivery Summary',
     delivery_team: 'Delivery Team',
