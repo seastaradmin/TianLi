@@ -39,38 +39,6 @@
         pointer-events: none;
         z-index: 0;
       }
-      /* 星座连线 - 发光效果 */
-      .constellation-line {
-        position: absolute;
-        height: 2px;
-        background: linear-gradient(90deg, 
-          rgba(100, 180, 255, 0) 0%,
-          rgba(100, 180, 255, 0.6) 20%,
-          rgba(150, 200, 255, 0.8) 50%,
-          rgba(100, 180, 255, 0.6) 80%,
-          rgba(100, 180, 255, 0) 100%
-        );
-        transform-origin: left center;
-        pointer-events: none;
-        z-index: 1;
-        box-shadow: 0 0 8px 2px rgba(100, 180, 255, 0.5);
-        border-radius: 2px;
-      }
-      /* 星座星星节点 */
-      .constellation-node {
-        position: absolute;
-        width: 4px;
-        height: 4px;
-        background: rgba(150, 200, 255, 0.9);
-        border-radius: 50%;
-        box-shadow: 0 0 10px 3px rgba(100, 180, 255, 0.6);
-        z-index: 2;
-        animation: node-pulse 3s ease-in-out infinite;
-      }
-      @keyframes node-pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.6; transform: scale(1.2); }
-      }
       .star {
         position: absolute;
         border-radius: 50%;
@@ -146,40 +114,6 @@
         flex-direction: column;
       }
       #drawer.open { right: 0; }
-      
-      /* 移动端适配 */
-      @media (max-width: 768px) {
-        #input-area {
-          bottom: 20px;
-          width: 95vw;
-        }
-        #input-area input {
-          padding: 12px 16px;
-          font-size: 16px; /* 防止 iOS 缩放 */
-        }
-        #drawer {
-          width: 100vw;
-          right: -100vw;
-        }
-        .drawer-header h2 {
-          font-size: 16px;
-        }
-        .deliverable h3 {
-          font-size: 13px;
-        }
-        .deliverable p {
-          font-size: 11px;
-        }
-        .deliverable button {
-          padding: 6px 12px;
-          font-size: 12px;
-        }
-        #progress-toast {
-          max-width: 90vw;
-          padding: 10px 16px;
-          font-size: 13px;
-        }
-      }
       .drawer-header {
         padding: 20px;
         border-bottom: 1px solid rgba(255,255,255,0.1);
@@ -284,6 +218,39 @@
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
+      /* 移动端适配 */
+      @media (max-width: 768px) {
+        #input-area {
+          bottom: 20px;
+          width: 95vw;
+        }
+        #input-area input {
+          padding: 12px 16px;
+          font-size: 16px;
+        }
+        #drawer {
+          width: 100vw;
+          right: -100vw;
+        }
+        .drawer-header h2 {
+          font-size: 16px;
+        }
+        .deliverable h3 {
+          font-size: 13px;
+        }
+        .deliverable p {
+          font-size: 11px;
+        }
+        .deliverable button {
+          padding: 6px 12px;
+          font-size: 12px;
+        }
+        #progress-toast {
+          max-width: 90vw;
+          padding: 10px 16px;
+          font-size: 13px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -378,53 +345,6 @@
       scheduleShootingStar();
       setTimeout(createShootingStar, 3000);
       
-      // 北斗七星连线 + 节点
-      function createConstellation() {
-        // 北斗七星相对位置（勺状）
-        const bigDipper = [
-          { x: 20, y: 30, name: '天枢' },
-          { x: 25, y: 32, name: '天璇' },
-          { x: 30, y: 35, name: '天玑' },
-          { x: 35, y: 33, name: '天权' },
-          { x: 40, y: 30, name: '玉衡' },
-          { x: 45, y: 28, name: '开阳' },
-          { x: 50, y: 25, name: '摇光' },
-        ];
-        
-        // 创建节点（星星点）
-        bigDipper.forEach((star, index) => {
-          const node = document.createElement('div');
-          node.className = 'constellation-node';
-          node.style.left = `calc(${star.x}% - 2px)`;
-          node.style.top = `calc(${star.y}% - 2px)`;
-          node.title = star.name;
-          container.appendChild(node);
-        });
-        
-        // 创建连线
-        for (let i = 0; i < bigDipper.length - 1; i++) {
-          const line = document.createElement('div');
-          line.className = 'constellation-line';
-          
-          const x1 = bigDipper[i].x;
-          const y1 = bigDipper[i].y;
-          const x2 = bigDipper[i + 1].x;
-          const y2 = bigDipper[i + 1].y;
-          
-          const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-          const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-          
-          line.style.left = x1 + '%';
-          line.style.top = y1 + '%';
-          line.style.width = length + '%';
-          line.style.transform = `rotate(${angle}deg)`;
-          
-          container.appendChild(line);
-        }
-      }
-      
-      createConstellation();
-      
       // 隐藏加载动画
       setTimeout(() => {
         document.getElementById('loading').classList.add('hidden');
@@ -453,15 +373,12 @@
           console.log('任务:', task);
           input.value = '';
           
-          // 显示进度提示
           showProgress('正在处理任务...');
           
-          // 模拟任务进度
           setTimeout(() => {
             showProgress('正在生成交付物...');
           }, 1000);
           
-          // 模拟任务完成
           setTimeout(() => {
             hideProgress();
             showDeliverables();
