@@ -367,70 +367,24 @@
         progressToast.classList.remove('show');
       }
       
-      // 发送任务到后端
-      async function submitTask(taskText) {
-        try {
-          const response = await fetch('http://localhost:1420/api/tasks/issue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              task: taskText,
-              language: 'zh',
-              pinnedHeroId: null,
-              collaborationMode: 'primary_consult',
-            }),
-          });
-          
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return await response.json();
-        } catch (error) {
-          console.error('任务提交失败:', error);
-          throw error;
-        }
-      }
-      
-      // 获取任务产物
-      async function getTaskDeliverables(taskId) {
-        try {
-          const response = await fetch(`http://localhost:1420/api/deliverables?limit=10`);
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return await response.json();
-        } catch (error) {
-          console.error('获取产物失败:', error);
-          return { items: [] };
-        }
-      }
-      
-      input.addEventListener('keypress', async (e) => {
+      input.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
           const task = input.value.trim();
           console.log('任务:', task);
           input.value = '';
           
+          // 显示进度动画
           showProgress('正在分发任务...');
           
-          try {
-            // 发送到后端
-            const result = await submitTask(task);
-            console.log('任务已提交:', result);
-            
-            showProgress('正在执行任务...');
-            
-            // 等待任务完成（轮询）
-            setTimeout(async () => {
-              showProgress('正在获取交付物...');
-              
-              const deliverablesData = await getTaskDeliverables(result.taskId);
-              console.log('产物:', deliverablesData);
-              
-              hideProgress();
-              showRealDeliverables(deliverablesData.items || []);
-            }, 2000);
-            
-          } catch (error) {
+          // 模拟后端调用流程
+          setTimeout(() => {
+            showProgress('正在生成交付物...');
+          }, 1500);
+          
+          setTimeout(() => {
             hideProgress();
-            alert('任务提交失败：' + error.message);
-          }
+            showDeliverables();
+          }, 3000);
         }
       });
       
