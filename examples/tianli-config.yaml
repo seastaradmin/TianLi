@@ -1,0 +1,97 @@
+# TianLi Harness Configuration Example
+# 天理 Harness 配置示例
+
+# ==================== Hero Configuration ====================
+hero:
+  # Hero ID (can use predefined heroes or custom)
+  id: "engineering-hero"  # Options: engineering-hero, pm-hero, qa-hero, db-hero, infra-hero, frontend-hero, backend-hero, mobile-hero, data-hero, security-hero, devops-hero, brainstorm-hero
+  
+  # Use predefined hero template (recommended)
+  use_predefined: true
+  
+  # Allowed tools (superpowers)
+  superpowers:
+    - Read
+    - Write
+    - Edit
+    - Glob
+    - Grep
+    - Bash
+
+# ==================== TianJie (天劫) Audit Configuration ====================
+tianjie:
+  # L2 semantic alignment threshold (0.0-1.0)
+  # Lower = more lenient, Higher = stricter
+  drift_threshold: 0.4
+  
+  # Number of repeated tool calls to trigger L1 check
+  repetition_threshold: 3
+  
+  # Probability of L2 deep check (0.0-1.0)
+  # 1.0 = check every call, 0.0 = never check
+  l2_sample_ratio: 0.3
+  
+  # Forbidden words/phrases that trigger immediate failure
+  forbidden_words:
+    - "rm -rf"
+    - "DROP TABLE"
+    - "DELETE FROM"
+    - "chmod 777"
+
+# ==================== TianYan (天演) Evolution Configuration ====================
+tianyan:
+  # Enable automatic evolution patch generation
+  enabled: true
+  
+  # Auto-commit patches to GitHub (requires github_token)
+  auto_commit: false
+  
+  # GitHub token for auto-commit (or set GITHUB_TOKEN env var)
+  # github_token: "ghp_xxx"
+
+# ==================== Dispatch Configuration ====================
+dispatch:
+  # Dispatch mode: "rules", "llm", "hybrid"
+  mode: "hybrid"
+  
+  # Maximum number of parallel heroes
+  max_fanout: 2
+  
+  # Model for routing decisions
+  router_model: "claude-3-5-haiku-latest"
+  
+  # Model for audit checks
+  audit_model: "claude-3-5-haiku-latest"
+  
+  # Default heroes to fallback on
+  default_hero_ids:
+    - "engineering-hero"
+
+# ==================== Advanced Configuration ====================
+# Checkpoint path for session persistence
+checkpoint_path: "./tianli_harness/checkpoints.sqlite"
+
+# Skill search paths
+skill_search_paths:
+  - "~/.agents/skills"
+  - "./custom_skills"
+
+# Maximum skill fanout
+max_skill_fanout: 2
+
+# Local hero prompts (override predefined)
+local_hero_prompts:
+  # custom-hero: |
+  #   You are a custom hero with special abilities...
+  #   Your strengths include...
+
+# Remote hero sources (optional)
+# remote_sources:
+#   - source_id: "agency-agents"
+#     kind: "github"
+#     owner: "agency-agency"
+#     repo: "agency-agents"
+#     categories:
+#       - "engineering"
+#       - "product"
+#     enabled: true

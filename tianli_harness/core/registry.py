@@ -397,7 +397,7 @@ class HeroRegistry:
         return profiles
 
     async def _refresh_json_source(self, source: RemoteHeroSource) -> List[HeroProfile]:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             response = await client.get(source.url)
             response.raise_for_status()
             payload = response.json()
@@ -426,7 +426,7 @@ class HeroRegistry:
         categories = source.categories or DEFAULT_AGENCY_CATEGORIES
         limit = source.limit or 28
         profiles: List[HeroProfile] = []
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             for group_index, category in enumerate(categories):
                 if len(profiles) >= limit:
                     break

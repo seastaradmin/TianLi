@@ -6,14 +6,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
+from collections import Counter, defaultdict
 from contextlib import suppress
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from shutil import disk_usage
 from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import quote
 
 from tianli_harness import HarnessConfig, HarnessEngine
+from tianli_harness.core.db_connector import get_feedback_database
 from tianli_harness.core.dispatcher import TaskDispatcher
 from tianli_harness.core.registry import HeroRegistry
 from tianli_harness.core.state import DispatchDecision, HeroProfile, SkillDispatch, TaskEnvelope
@@ -29,6 +34,12 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = {"issued", "routing", "consulting", "running", "synthesizing"}
 BUSY_HERO_STATUSES = {"routing", "consulting", "running", "recovering"}
+TERMINAL_TASK_STATUSES = {"accepted", "completed", "failed", "error", "early_exit"}
+RANGE_TO_DELTA = {
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+}
 
 
 try:
@@ -99,6 +110,689 @@ def _now_iso() -> str:
 
 def _task_sort_key(task: Dict[str, Any]) -> tuple:
     return (task.get("updatedAt", ""), task.get("createdAt", ""))
+
+
+PROJECT_ROOT = Path(__file__).parent.resolve()
+DELIVERABLE_ROOT_NAMES = ("generated_ppts", "generated_docs", "outputs", "artifacts")
+
+
+def _resolve_deliverable_roots() -> List[Path]:
+    return [root for name in DELIVERABLE_ROOT_NAMES if (root := PROJECT_ROOT / name).exists()]
+
+
+def _is_within(parent: Path, candidate: Path) -> bool:
+    try:
+        candidate.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _collect_deliverables(limit: int = 24) -> List[Dict[str, Any]]:
+    deliverables: List[Dict[str, Any]] = []
+
+    for root in _resolve_deliverable_roots():
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+
+            stat = path.stat()
+            relative_path = path.relative_to(PROJECT_ROOT).as_posix()
+            deliverables.append(
+                {
+                    "id": relative_path,
+                    "fileName": path.name,
+                    "relativePath": relative_path,
+                    "rootName": root.name,
+                    "fileType": path.suffix.lstrip(".").lower() or "file",
+                    "sizeBytes": stat.st_size,
+                    "modifiedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "downloadUrl": f"/api/deliverables/download?path={quote(relative_path)}",
+                }
+            )
+
+    deliverables.sort(key=lambda item: item["modifiedAt"], reverse=True)
+    return deliverables[:limit]
+
+
+def _resolve_deliverable_path(relative_path: str) -> Path:
+    candidate = (PROJECT_ROOT / relative_path).resolve()
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+
+    if not any(_is_within(root, candidate) for root in _resolve_deliverable_roots()):
+        raise HTTPException(status_code=403, detail="Deliverable path is outside allowed roots")
+
+    return candidate
+
+
+def _feedback_db():
+    return get_feedback_database()
+
+
+def _normalize_time_range(value: Optional[str]) -> str:
+    if value in RANGE_TO_DELTA:
+        return str(value)
+    return "24h"
+
+
+def _range_start(value: Optional[str]) -> datetime:
+    normalized = _normalize_time_range(value)
+    return datetime.now() - RANGE_TO_DELTA[normalized]
+
+
+def _parse_json_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if isinstance(value, str) and value:
+        with suppress(Exception):
+            loaded = json.loads(value)
+            if isinstance(loaded, list):
+                return [str(item) for item in loaded if item]
+    return []
+
+
+def _parse_json_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        with suppress(Exception):
+            loaded = json.loads(value)
+            if isinstance(loaded, dict):
+                return loaded
+    return {}
+
+
+def _parse_json_sequence(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value:
+        with suppress(Exception):
+            loaded = json.loads(value)
+            if isinstance(loaded, list):
+                return loaded
+    return []
+
+
+def _count_violations(value: Any) -> int:
+    return len(_parse_json_sequence(value))
+
+
+def _status_progress(status: str) -> int:
+    progress_map = {
+        "issued": 6,
+        "routing": 18,
+        "consulting": 35,
+        "running": 52,
+        "synthesizing": 76,
+        "judgment_pending": 92,
+        "accepted": 100,
+        "completed": 100,
+        "rejected": 48,
+        "early_exit": 58,
+        "failed": 100,
+        "error": 100,
+        "recovering": 64,
+    }
+    return progress_map.get(status, 0)
+
+
+def _status_tone(status: str) -> str:
+    if status in {"accepted", "completed"}:
+        return "success"
+    if status in {"failed", "error", "rejected"}:
+        return "danger"
+    if status in {"judgment_pending", "synthesizing"}:
+        return "warning"
+    if status in {"routing", "consulting", "running", "issued", "recovering"}:
+        return "info"
+    return "neutral"
+
+
+def _coerce_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        with suppress(ValueError):
+            return datetime.fromisoformat(value)
+    return None
+
+
+def _iso_or_empty(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _bucket_points(range_value: str) -> List[datetime]:
+    now = datetime.now()
+    normalized = _normalize_time_range(range_value)
+    if normalized == "24h":
+        start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
+        return [start + timedelta(hours=index) for index in range(24)]
+    days = 7 if normalized == "7d" else 30
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return [start + timedelta(days=index) for index in range(days)]
+
+
+def _bucket_key(value: datetime, range_value: str) -> str:
+    normalized = _normalize_time_range(range_value)
+    if normalized == "24h":
+        return value.replace(minute=0, second=0, microsecond=0).isoformat()
+    return value.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _bucket_label(value: datetime, range_value: str) -> str:
+    normalized = _normalize_time_range(range_value)
+    return value.strftime("%H:%M") if normalized == "24h" else value.strftime("%m-%d")
+
+
+def _latest_runtime_or_db_status(task_id: str, result_rows: List[Dict[str, Any]]) -> str:
+    runtime_task = state.tasks.get(task_id)
+    if runtime_task and runtime_task.get("status"):
+        return str(runtime_task["status"])
+    for row in reversed(result_rows):
+        current_status = row.get("current_status")
+        if current_status:
+            return str(current_status)
+        if row.get("status"):
+            return str(row["status"])
+    return "running" if result_rows else "idle"
+
+
+def _build_session_summaries(limit: int = 10, time_range: Optional[str] = None) -> List[Dict[str, Any]]:
+    db = _feedback_db()
+    since = _range_start(time_range) if time_range else None
+    dispatch_rows = db.fetch_recent_dispatch_decisions(limit=max(limit * 16, 160), since=since)
+    result_rows = db.fetch_recent_task_results(limit=max(limit * 24, 240), since=since)
+
+    dispatch_by_task: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in dispatch_rows:
+        dispatch_by_task[str(row.get("task_id", ""))].append(row)
+
+    results_by_task: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in result_rows:
+        results_by_task[str(row.get("task_id", ""))].append(row)
+
+    task_ids = {task_id for task_id in dispatch_by_task if task_id} | {task_id for task_id in results_by_task if task_id}
+    task_ids |= set(state.tasks.keys())
+
+    summaries: List[Dict[str, Any]] = []
+    for task_id in task_ids:
+        task_dispatches = sorted(dispatch_by_task.get(task_id, []), key=lambda row: row.get("created_at") or datetime.min)
+        task_results = sorted(results_by_task.get(task_id, []), key=lambda row: row.get("created_at") or datetime.min)
+        runtime_task = state.tasks.get(task_id, {})
+
+        start_dt = _coerce_dt(runtime_task.get("createdAt")) or (
+            task_dispatches[0].get("created_at") if task_dispatches else None
+        )
+        last_activity_dt = (
+            _coerce_dt(runtime_task.get("updatedAt"))
+            or (task_results[-1].get("created_at") if task_results else None)
+            or (task_dispatches[-1].get("created_at") if task_dispatches else None)
+        )
+        if not start_dt:
+            continue
+
+        status = _latest_runtime_or_db_status(task_id, task_results)
+        is_terminal = status in TERMINAL_TASK_STATUSES or status in {"accepted", "completed", "failed", "error"}
+        end_dt = _coerce_dt(runtime_task.get("completedAt")) or ((task_results[-1].get("created_at")) if is_terminal and task_results else None)
+        effective_end = end_dt or last_activity_dt or datetime.now()
+        duration_seconds = max((effective_end - start_dt).total_seconds(), 0.0)
+
+        hero_counter: Counter[str] = Counter()
+        primary_hero_id = runtime_task.get("primaryHeroId")
+        for dispatch in task_dispatches:
+            selected_hero_ids = _parse_json_list(dispatch.get("selected_hero_ids"))
+            hero_counter.update(selected_hero_ids)
+            primary_hero_id = primary_hero_id or dispatch.get("primary_hero_id")
+
+        l1_rows = [bool(row["l1_passed"]) for row in task_results if row.get("l1_passed") is not None]
+        l2_rows = [bool(row["l2_passed"]) for row in task_results if row.get("l2_passed") is not None]
+        l2_scores = [float(row["l2_score"]) for row in task_results if row.get("l2_score") is not None]
+        early_exits = sum(
+            1
+            for row in task_results
+            if str(row.get("current_status") or row.get("status") or "") == "early_exit"
+        )
+        evolution_patches = sum(1 for row in task_results if row.get("evolution_patch"))
+        title = str(runtime_task.get("title") or (task_dispatches[0].get("user_input") if task_dispatches else task_id))
+
+        summaries.append(
+            {
+                "session_id": task_id,
+                "task_id": task_id,
+                "title": title,
+                "start_time": start_dt.isoformat(),
+                "end_time": end_dt.isoformat() if isinstance(end_dt, datetime) else None,
+                "duration_seconds": round(duration_seconds, 2),
+                "total_requests": max(len(task_dispatches), 1 if runtime_task or task_results else 0),
+                "successful_completions": 1 if status in {"accepted", "completed"} else 0,
+                "early_exits": early_exits,
+                "l1_pass_rate": round(sum(l1_rows) / len(l1_rows), 4) if l1_rows else 0.0,
+                "l2_pass_rate": round(sum(l2_rows) / len(l2_rows), 4) if l2_rows else 0.0,
+                "avg_l2_score": round(sum(l2_scores) / len(l2_scores), 4) if l2_scores else 0.0,
+                "tool_calls": {
+                    "total": sum(hero_counter.values()),
+                    "by_tool": dict(hero_counter),
+                },
+                "status": status,
+                "evolution_patches": evolution_patches,
+                "primary_hero_id": primary_hero_id,
+                "selected_hero_ids": list(hero_counter.keys()) or list(runtime_task.get("selectedHeroIds", [])),
+                "updated_at": _iso_or_empty(last_activity_dt),
+                "pending_verdict": status == "judgment_pending",
+            }
+        )
+
+    summaries.sort(key=lambda item: item.get("updated_at") or item.get("start_time") or "", reverse=True)
+    return summaries[:limit]
+
+
+def _build_metrics(time_range: Optional[str]) -> Dict[str, Any]:
+    normalized = _normalize_time_range(time_range)
+    db = _feedback_db()
+    result_rows = db.fetch_recent_task_results(limit=4000, since=_range_start(normalized))
+    sessions = _build_session_summaries(limit=200, time_range=normalized)
+
+    l1_rows = [bool(row["l1_passed"]) for row in result_rows if row.get("l1_passed") is not None]
+    l2_rows = [bool(row["l2_passed"]) for row in result_rows if row.get("l2_passed") is not None]
+    latencies = [int(row["execution_time_ms"]) for row in result_rows if row.get("execution_time_ms") is not None]
+    total_violations = sum(_count_violations(row.get("violations")) for row in result_rows)
+    early_exit_rows = sum(
+        1 for row in result_rows if str(row.get("current_status") or row.get("status") or "") == "early_exit"
+    )
+    evolution_patches = sum(1 for row in result_rows if row.get("evolution_patch"))
+
+    if not result_rows and state.tasks:
+        early_exit_rows = sum(1 for task in state.tasks.values() if task.get("status") == "early_exit")
+
+    return {
+        "totalSessions": len(sessions),
+        "totalRequests": sum(session.get("total_requests", 0) for session in sessions),
+        "l1PassRate": round(sum(l1_rows) / len(l1_rows), 4) if l1_rows else 0.0,
+        "l2PassRate": round(sum(l2_rows) / len(l2_rows), 4) if l2_rows else 0.0,
+        "earlyExitRate": round(early_exit_rows / len(result_rows), 4) if result_rows else 0.0,
+        "avgLatencyMs": round(sum(latencies) / len(latencies), 2) if latencies else 0,
+        "totalViolations": total_violations,
+        "evolutionPatches": evolution_patches,
+        "timeRange": normalized,
+    }
+
+
+def _build_chart_data(metric: str, time_range: Optional[str]) -> List[Dict[str, Any]]:
+    normalized = _normalize_time_range(time_range)
+    bucket_values = _bucket_points(normalized)
+    bucket_map = {
+        _bucket_key(point, normalized): {
+            "timestamp": point.isoformat(),
+            "label": _bucket_label(point, normalized),
+            "value": 0,
+        }
+        for point in bucket_values
+    }
+
+    if metric == "requests":
+        for session in _build_session_summaries(limit=500, time_range=normalized):
+            start_dt = _coerce_dt(session.get("start_time"))
+            if not start_dt:
+                continue
+            key = _bucket_key(start_dt, normalized)
+            if key in bucket_map:
+                bucket_map[key]["value"] += int(session.get("total_requests", 0) or 0)
+        return list(bucket_map.values())
+
+    if metric in {"pass-rates", "pass_rates"}:
+        db = _feedback_db()
+        rows = db.fetch_recent_task_results(limit=4000, since=_range_start(normalized))
+        rate_map = {
+            key: {
+                "timestamp": value["timestamp"],
+                "label": value["label"],
+                "l1_total": 0,
+                "l1_pass": 0,
+                "l2_total": 0,
+                "l2_pass": 0,
+            }
+            for key, value in bucket_map.items()
+        }
+        for row in rows:
+            created_at = _coerce_dt(row.get("created_at"))
+            if not created_at:
+                continue
+            key = _bucket_key(created_at, normalized)
+            if key not in rate_map:
+                continue
+            if row.get("l1_passed") is not None:
+                rate_map[key]["l1_total"] += 1
+                rate_map[key]["l1_pass"] += 1 if bool(row["l1_passed"]) else 0
+            if row.get("l2_passed") is not None:
+                rate_map[key]["l2_total"] += 1
+                rate_map[key]["l2_pass"] += 1 if bool(row["l2_passed"]) else 0
+        return [
+            {
+                "timestamp": value["timestamp"],
+                "label": value["label"],
+                "l1": round((value["l1_pass"] / value["l1_total"]) * 100, 2) if value["l1_total"] else 0,
+                "l2": round((value["l2_pass"] / value["l2_total"]) * 100, 2) if value["l2_total"] else 0,
+            }
+            for value in rate_map.values()
+        ]
+
+    return []
+
+
+def _build_runtime_messages(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    task_id = str(task.get("taskId") or "")
+    if not task_id:
+        return []
+
+    messages: List[Dict[str, Any]] = [
+        {
+            "id": f"{task_id}-user",
+            "task_id": task_id,
+            "round": 0,
+            "role": "user",
+            "content": str(task.get("title") or task_id),
+            "hero_id": None,
+            "status": "issued",
+            "timestamp": str(task.get("createdAt") or ""),
+        }
+    ]
+
+    delivery_summary = str(task.get("deliverySummary") or "")
+    if delivery_summary:
+        messages.append(
+            {
+                "id": f"{task_id}-delivery",
+                "task_id": task_id,
+                "round": int(task.get("verdictRound") or 0),
+                "role": "assistant",
+                "content": delivery_summary,
+                "hero_id": task.get("primaryHeroId"),
+                "status": task.get("status"),
+                "timestamp": str(task.get("completedAt") or task.get("updatedAt") or ""),
+            }
+        )
+
+    for index, verdict in enumerate(task.get("verdictHistory", [])):
+        verdict_name = "approve" if verdict.get("verdict") == "approve" else "reject"
+        note = str(verdict.get("note") or "无补充说明")
+        messages.append(
+            {
+                "id": f"{task_id}-verdict-{index}",
+                "task_id": task_id,
+                "round": int(verdict.get("round") or 0),
+                "role": "assistant",
+                "content": f"裁决 {verdict_name}：{note}",
+                "hero_id": task.get("primaryHeroId"),
+                "status": "accepted" if verdict_name == "approve" else "rejected",
+                "timestamp": str(verdict.get("timestamp") or task.get("updatedAt") or ""),
+            }
+        )
+
+    return [message for message in messages if message.get("timestamp")]
+
+
+def _build_conversations(limit: int = 50) -> List[Dict[str, Any]]:
+    db = _feedback_db()
+    rows = db.fetch_conversation_messages(limit_tasks=limit)
+    grouped: Dict[str, Dict[str, Any]] = {}
+
+    for row in rows:
+        task_id = str(row.get("task_id") or "")
+        if not task_id:
+            continue
+        created_at = row.get("created_at")
+        timestamp = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or "")
+        conversation = grouped.setdefault(
+            task_id,
+            {
+                "task_id": task_id,
+                "session_id": task_id,
+                "messages": [],
+                "started_at": timestamp,
+                "last_message_at": timestamp,
+                "hero_id": row.get("hero_id"),
+                "status": row.get("status") or "issued",
+            },
+        )
+        conversation["messages"].append(
+            {
+                "id": str(row.get("id")),
+                "task_id": task_id,
+                "round": int(row.get("round") or 0),
+                "role": row.get("role") or "assistant",
+                "content": row.get("content") or "",
+                "timestamp": timestamp,
+                "hero_id": row.get("hero_id"),
+                "status": row.get("status"),
+            }
+        )
+        conversation["started_at"] = min(conversation["started_at"], timestamp)
+        conversation["last_message_at"] = max(conversation["last_message_at"], timestamp)
+        if row.get("hero_id"):
+            conversation["hero_id"] = row.get("hero_id")
+        if row.get("status"):
+            conversation["status"] = row.get("status")
+
+    for task_id, task in state.tasks.items():
+        if task_id in grouped:
+            grouped[task_id]["status"] = task.get("status") or grouped[task_id]["status"]
+            grouped[task_id]["hero_id"] = task.get("primaryHeroId") or grouped[task_id]["hero_id"]
+            continue
+        runtime_messages = _build_runtime_messages(task)
+        if not runtime_messages:
+            continue
+        grouped[task_id] = {
+            "task_id": task_id,
+            "session_id": task_id,
+            "messages": runtime_messages,
+            "started_at": runtime_messages[0]["timestamp"],
+            "last_message_at": runtime_messages[-1]["timestamp"],
+            "hero_id": task.get("primaryHeroId"),
+            "status": task.get("status") or "issued",
+        }
+
+    conversations = []
+    for conversation in grouped.values():
+        conversation["messages"].sort(key=lambda item: (item.get("timestamp", ""), item.get("id", "")))
+        conversation["message_count"] = len(conversation["messages"])
+        conversation["title"] = next(
+            (message["content"] for message in conversation["messages"] if message.get("role") == "user"),
+            conversation["task_id"],
+        )
+        conversations.append(conversation)
+
+    conversations.sort(key=lambda item: item.get("last_message_at", ""), reverse=True)
+    return conversations[:limit]
+
+
+async def _build_skills_inventory(
+    registry: HeroRegistry,
+    skill_registry: LocalSkillRegistry,
+) -> Dict[str, Any]:
+    heroes = await registry.list_profiles(refresh_remote=False)
+    linked_by_skill: Dict[str, List[str]] = defaultdict(list)
+    hero_name_map: Dict[str, str] = {}
+    for hero in heroes:
+        if hero.hero_id.startswith("skill/"):
+            continue
+        hero_name_map[hero.hero_id] = hero.display_name_zh or hero.display_name
+        for skill_id in hero.linked_skills:
+            linked_by_skill[skill_id].append(hero.hero_id)
+
+    resolved_profiles: Dict[str, Any] = {}
+    for root in skill_registry.roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("SKILL.md")):
+            skill_id = path.parent.name
+            if skill_id in resolved_profiles:
+                continue
+            profile = await skill_registry.resolve(skill_id)
+            if profile:
+                resolved_profiles[skill_id] = profile
+
+    all_skill_ids = sorted(set(linked_by_skill.keys()) | set(resolved_profiles.keys()))
+    items = []
+    for skill_id in all_skill_ids:
+        profile = resolved_profiles.get(skill_id)
+        linked_heroes = sorted(linked_by_skill.get(skill_id, []))
+        items.append(
+            {
+                "skill_id": skill_id,
+                "name": profile.name if profile else skill_id,
+                "description": profile.description if profile else "Linked by hero registry, but not found in local skill roots.",
+                "installed": profile is not None,
+                "available": profile is not None,
+                "source": profile.source_path if profile else "hero-registry-link",
+                "hero_ids": linked_heroes,
+                "hero_names": [hero_name_map.get(hero_id, hero_id) for hero_id in linked_heroes],
+                "hero_count": len(linked_heroes),
+            }
+        )
+
+    items.sort(key=lambda item: (not item["installed"], -item["hero_count"], item["skill_id"]))
+
+    return {
+        "items": items,
+        "summary": {
+            "total": len(items),
+            "installed": len([item for item in items if item["installed"]]),
+            "linked": len([item for item in items if item["hero_count"] > 0]),
+            "missing": len([item for item in items if not item["installed"]]),
+        },
+    }
+
+
+def _build_active_tasks(limit: int = 20) -> Dict[str, Any]:
+    tasks = sorted(state.tasks.values(), key=_task_sort_key, reverse=True)[:limit]
+    items: List[Dict[str, Any]] = []
+    for task in tasks:
+        hero_entries = []
+        for hero_id in task.get("selectedHeroIds", []):
+            hero = state.heroes.get(hero_id, {})
+            flow = next(
+                (
+                    item
+                    for item in sorted(
+                        state.flows.values(),
+                        key=lambda current: (current.get("round", 0), current.get("createdAt", "")),
+                        reverse=True,
+                    )
+                    if item.get("taskId") == task.get("taskId") and item.get("heroId") == hero_id
+                ),
+                None,
+            )
+            detail = next(
+                (item for item in task.get("deliveryDetails", []) if item.get("heroId") == hero_id),
+                {},
+            )
+            lane_status = str(
+                detail.get("status")
+                or (flow or {}).get("status")
+                or hero.get("status")
+                or task.get("status")
+                or "idle"
+            )
+            hero_entries.append(
+                {
+                    "id": f"{task.get('taskId')}-{hero_id}",
+                    "hero_id": hero_id,
+                    "name": hero.get("displayNameZh") or hero.get("displayName") or hero_id,
+                    "role": detail.get("role") or (flow or {}).get("role") or ("primary" if hero_id == task.get("primaryHeroId") else "consult"),
+                    "status": lane_status,
+                    "progress": _status_progress(lane_status),
+                    "started_at": (flow or {}).get("createdAt") or task.get("createdAt"),
+                    "completed_at": task.get("completedAt") if lane_status in TERMINAL_TASK_STATUSES | {"judgment_pending", "accepted"} else None,
+                    "result": detail.get("summaryZh") or detail.get("summary") or "",
+                    "skill_dispatches": detail.get("skillDispatches") or [],
+                }
+            )
+
+        items.append(
+            {
+                "task_id": task.get("taskId"),
+                "title": task.get("title"),
+                "status": task.get("status"),
+                "tone": _status_tone(str(task.get("status") or "")),
+                "overall_progress": _status_progress(str(task.get("status") or "")),
+                "started_at": task.get("createdAt"),
+                "updated_at": task.get("updatedAt"),
+                "completed_at": task.get("completedAt"),
+                "primary_hero_id": task.get("primaryHeroId"),
+                "selected_hero_ids": task.get("selectedHeroIds", []),
+                "round": task.get("verdictRound", 0),
+                "delivery_summary": task.get("deliverySummary") or "",
+                "judgment_note": task.get("judgmentNote") or "",
+                "sub_agents": hero_entries,
+            }
+        )
+
+    return {
+        "items": items,
+        "summary": {
+            "running": len([item for item in items if item["status"] in ACTIVE_TASK_STATUSES]),
+            "judgment_pending": len([item for item in items if item["status"] == "judgment_pending"]),
+            "completed": len([item for item in items if item["status"] in {"accepted", "completed"}]),
+        },
+    }
+
+
+def _resource_memory_mb() -> int:
+    with suppress(Exception):
+        import resource
+
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if rss > 10_000_000:
+            return int(rss / (1024 * 1024))
+        return int(rss / 1024)
+    return 0
+
+
+def _build_health_payload() -> Dict[str, Any]:
+    with suppress(Exception):
+        cpu_load = os.getloadavg()[0]
+    if "cpu_load" not in locals():
+        cpu_load = 0.0
+    disk = disk_usage(PROJECT_ROOT)
+    disk_percent = round((disk.used / disk.total) * 100, 2) if disk.total else 0.0
+    memory_mb = _resource_memory_mb()
+    db = _feedback_db()
+    db_connected = bool(getattr(db, "connection", None))
+
+    resource_status = "healthy"
+    if disk_percent >= 90 or memory_mb >= 4096:
+        resource_status = "warning"
+
+    return {
+        "executor": {
+            "status": "healthy" if state.global_status() != "error" else "error",
+            "platforms": {
+                "local": True,
+                "database": db_connected,
+                "remote_heroes": any(hero.get("source") not in {"local", "", None} for hero in state.heroes.values()),
+                "skills": True,
+            },
+        },
+        "resources": {
+            "status": resource_status,
+            "cpu_percent": round(cpu_load * 100, 2),
+            "memory_mb": memory_mb,
+            "disk_percent": disk_percent,
+        },
+        "audit": {
+            "status": "healthy",
+            "active_rules": len(harness_runner.base_config.forbidden_words),
+            "l2_sample_rate": harness_runner.base_config.l2_sample_ratio,
+            "last_update": _now_iso(),
+        },
+        "running": state.stats_payload()["activeTasks"] > 0,
+    }
 
 
 class LiveServerState:
@@ -271,6 +965,27 @@ class TianLiHarnessRunner:
     def _log(self, module: str, zh: str, en: str, level: str = "INFO", data: Optional[Dict[str, Any]] = None) -> None:
         state.add_log(module, level=level, data=data, msg_zh=zh, msg_en=en)
 
+    def _persist_conversation_message(
+        self,
+        task_id: str,
+        round_index: int,
+        role: str,
+        content: str,
+        hero_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> None:
+        if not content.strip():
+            return
+        with suppress(Exception):
+            _feedback_db().log_conversation_message(
+                task_id=task_id,
+                round_index=round_index,
+                role=role,
+                content=content.strip(),
+                hero_id=hero_id,
+                status=status,
+            )
+
     def _hero_name(self, hero: HeroProfile | Dict[str, Any], language: str) -> str:
         if isinstance(hero, HeroProfile):
             if language == "zh":
@@ -310,6 +1025,13 @@ class TianLiHarnessRunner:
             collaboration_mode=payload.collaborationMode or "primary_consult",
         )
 
+        self._persist_conversation_message(
+            task_id=task.task_id,
+            round_index=task.verdict_round,
+            role="user",
+            content=payload.task,
+            status="issued",
+        )
         self._materialize_dispatch(task, decision, selected_profiles)
         run_task = asyncio.create_task(self._execute_task(task, decision, selected_profiles))
         self.active_runs[task.task_id] = run_task
@@ -363,6 +1085,14 @@ class TianLiHarnessRunner:
                     "round": task.get("verdictRound", 0),
                 },
             )
+            self._persist_conversation_message(
+                task_id=task["taskId"],
+                round_index=int(task.get("verdictRound", 0)),
+                role="assistant",
+                content=f"裁决通过。{note or '本轮交付被接受。'}",
+                hero_id=task.get("primaryHeroId"),
+                status="accepted",
+            )
             self._log("JUDGMENT", f"裁决通过：{task['title']}", f"Verdict approved: {task['title']}")
             state.push_snapshot()
             return {"status": "accepted", "taskId": task["taskId"]}
@@ -380,6 +1110,14 @@ class TianLiHarnessRunner:
                 "judgmentNote": note,
                 "round": task.get("verdictRound", 0),
             },
+        )
+        self._persist_conversation_message(
+            task_id=task["taskId"],
+            round_index=int(task.get("verdictRound", 0)),
+            role="assistant",
+            content=f"裁决打回。{note or '请根据裁决意见重新生成交付。'}",
+            hero_id=task.get("primaryHeroId"),
+            status="rejected",
         )
         self._log("JUDGMENT", f"裁决打回：{task['title']}", f"Verdict rejected: {task['title']}", level="WARN")
         state.push_snapshot()
@@ -503,6 +1241,35 @@ class TianLiHarnessRunner:
             },
         )
         state.emit("dispatch_decision", state.latest_dispatch_decision)
+        primary_name = next(
+            (
+                profile.display_name_zh or profile.display_name
+                for profile in selected_profiles
+                if profile.hero_id == decision.primary_hero_id
+            ),
+            decision.primary_hero_id or "主星使",
+        )
+        consult_names = [
+            profile.display_name_zh or profile.display_name
+            for profile in selected_profiles
+            if profile.hero_id in (decision.consult_hero_ids or [])
+        ]
+        summary_parts = [
+            f"第 {task.verdict_round + 1} 轮已完成分发。",
+            f"主星使：{primary_name}。",
+        ]
+        if consult_names:
+            summary_parts.append(f"协商星使：{'、'.join(consult_names)}。")
+        if decision.reasoning:
+            summary_parts.append(f"分发理由：{decision.reasoning}")
+        self._persist_conversation_message(
+            task_id=task.task_id,
+            round_index=task.verdict_round,
+            role="assistant",
+            content=" ".join(summary_parts),
+            hero_id=decision.primary_hero_id,
+            status="routing",
+        )
 
         if decision.consult_hero_ids:
             state.emit(
@@ -777,6 +1544,14 @@ class TianLiHarnessRunner:
                 "deliverySummaryEn": delivery_summary_en,
                 "selectedHeroIds": decision.selected_hero_ids,
             },
+        )
+        self._persist_conversation_message(
+            task_id=task.task_id,
+            round_index=task.verdict_round,
+            role="assistant",
+            content=delivery_summary_zh,
+            hero_id=decision.primary_hero_id,
+            status="judgment_pending",
         )
         state.push_snapshot()
         self._log("HARNESS", f"交付已提交裁决：{task.content}", f"Delivery submitted for judgment: {task.content}")
@@ -1114,6 +1889,7 @@ if HAS_FASTAPI:
         return {"status": "ok"}
 
     @app.get("/api/logs")
+    @app.get("/api/logs/stream")
     async def stream_logs(request: Request):
         async def generate():
             last_index = 0
@@ -1160,6 +1936,42 @@ if HAS_FASTAPI:
     async def get_heroes():
         return {"heroes": list(state.heroes.values())}
 
+    @app.get("/api/deliverables")
+    async def get_deliverables(limit: int = 24):
+        return {"items": _collect_deliverables(limit=max(1, min(limit, 100)))}
+
+    @app.get("/api/deliverables/download")
+    async def download_deliverable(path: str):
+        file_path = _resolve_deliverable_path(path)
+        return FileResponse(str(file_path), filename=file_path.name)
+
+    @app.get("/api/metrics")
+    async def get_metrics(range: str = "24h"):
+        return _build_metrics(range)
+
+    @app.get("/api/sessions")
+    async def get_sessions(limit: int = 10, range: Optional[str] = None):
+        safe_limit = max(1, min(limit, 100))
+        return _build_session_summaries(limit=safe_limit, time_range=range)
+
+    @app.get("/api/charts/{metric}")
+    async def get_chart(metric: str, range: str = "24h"):
+        return _build_chart_data(metric, range)
+
+    @app.get("/api/conversations")
+    async def get_conversations(limit: int = 50):
+        safe_limit = max(1, min(limit, 100))
+        return {"items": _build_conversations(limit=safe_limit)}
+
+    @app.get("/api/skills")
+    async def get_skills():
+        return await _build_skills_inventory(harness_runner.registry, harness_runner.skill_registry)
+
+    @app.get("/api/tasks/active")
+    async def get_active_tasks(limit: int = 20):
+        safe_limit = max(1, min(limit, 100))
+        return _build_active_tasks(limit=safe_limit)
+
     @app.post("/api/skills/refresh")
     async def refresh_skills():
         return await harness_runner.refresh_remote_sources()
@@ -1190,7 +2002,7 @@ if HAS_FASTAPI:
 
     @app.get("/api/health")
     async def health_check():
-        return {"status": "ok", "running": state.stats_payload()["activeTasks"] > 0}
+        return _build_health_payload()
 
 
 if __name__ == "__main__" and HAS_FASTAPI:  # pragma: no cover - manual execution

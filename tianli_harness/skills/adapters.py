@@ -157,7 +157,7 @@ class WebDesignGuidelinesAdapter(RepoAwareSkillAdapter):
     def _fetch_guidelines(self) -> str:
         request = Request(GUIDELINES_URL, headers={"User-Agent": "TianLi-Harness/0.2"})
         try:
-            with urlopen(request, timeout=4) as response:
+            with urlopen(request, timeout=30) as response:
                 return response.read().decode("utf-8", errors="replace")
         except Exception:
             return ""
