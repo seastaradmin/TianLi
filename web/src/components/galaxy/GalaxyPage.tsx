@@ -11,6 +11,8 @@ import {
   t,
 } from '../../i18n'
 import type { HeroState, FlowState, Language, TaskState, UiAnchor } from '../../types'
+import { collectHeroSkillIds } from '../../utils/heroSkills'
+import { partitionSessionTasks } from '../../utils/tasks'
 
 interface GalaxyPageProps {
   heroes: HeroState[]
@@ -19,24 +21,13 @@ interface GalaxyPageProps {
   selectedNodeId: string | null
   hoverHudNodeId: string | null
   hoverHudAnchor: UiAnchor | null
+  autoFocusTarget: { nodeId: string; token: number } | null
   isConnected: boolean
   isObservatoryOpen: boolean
   language: Language
   onToggleLanguage: () => void
   onSelectNode: (nodeId: string | null, anchor?: UiAnchor | null) => void
   onOpenObservatory: (origin?: UiAnchor | null) => void
-}
-
-function uniqueSkillCountForHero(tasks: TaskState[], heroId: string) {
-  const skillIds = new Set<string>()
-  for (const task of tasks) {
-    for (const skill of task.skillDispatches ?? []) {
-      if (skill.heroId === heroId && skill.status === 'applied') {
-        skillIds.add(skill.skillId)
-      }
-    }
-  }
-  return skillIds.size
 }
 
 function buildHoverModel(heroes: HeroState[], tasks: TaskState[], hoverHudNodeId: string | null, language: Language) {
@@ -47,7 +38,7 @@ function buildHoverModel(heroes: HeroState[], tasks: TaskState[], hoverHudNodeId
   const hero = heroes.find((item) => item.heroId === hoverHudNodeId)
   if (hero) {
     const currentTask = hero.currentTaskId ? tasks.find((task) => task.taskId === hero.currentTaskId) ?? null : null
-    const skillCount = uniqueSkillCountForHero(tasks, hero.heroId)
+    const skillIds = collectHeroSkillIds(hero, tasks)
     return {
       accentColor: hero.color,
       eyebrow: t(language, 'hero'),
@@ -56,8 +47,8 @@ function buildHoverModel(heroes: HeroState[], tasks: TaskState[], hoverHudNodeId
       body: resolveHeroDescription(hero, language) || hero.tags.slice(0, 4).join(' · '),
       meta: currentTask ? t(language, 'current_destiny', { title: currentTask.title }) : t(language, 'no_destiny'),
       chips: [
-        formatSkillCountLabel(skillCount, language),
-        ...hero.linkedSkills.slice(0, 2),
+        formatSkillCountLabel(skillIds.length, language),
+        ...skillIds.slice(0, 2),
       ],
     }
   }
@@ -91,6 +82,18 @@ function buildHoverModel(heroes: HeroState[], tasks: TaskState[], hoverHudNodeId
   }
 }
 
+function shortenText(value: string, maxLength = 140) {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  return `${normalized.slice(0, maxLength - 3)}...`
+}
+
+function buildSessionSummary(task: TaskState, language: Language) {
+  return shortenText(resolveDeliverySummary(task, language) || task.reasoning || task.title)
+}
+
 export function GalaxyPage({
   heroes,
   tasks,
@@ -98,6 +101,7 @@ export function GalaxyPage({
   selectedNodeId,
   hoverHudNodeId,
   hoverHudAnchor,
+  autoFocusTarget,
   isConnected,
   isObservatoryOpen,
   language,
@@ -106,6 +110,8 @@ export function GalaxyPage({
   onOpenObservatory,
 }: GalaxyPageProps) {
   const hoverModel = buildHoverModel(heroes, tasks, hoverHudNodeId, language)
+  const { activeTasks, archivedTasks } = partitionSessionTasks(tasks)
+  const selectedTask = tasks.find((task) => task.taskId === selectedNodeId) ?? activeTasks[0] ?? archivedTasks[0] ?? null
 
   return (
     <main className="galaxy-page">
@@ -113,7 +119,7 @@ export function GalaxyPage({
         <div className="galaxy-micro-brand">
           <span className={`galaxy-micro-pulse ${isConnected ? 'galaxy-micro-pulse-live' : ''}`} />
           <span className="galaxy-micro-wordmark">TIANLI</span>
-          <span className="galaxy-micro-status">{isConnected ? t(language, 'live') : t(language, 'offline')}</span>
+          {isConnected ? <span className="galaxy-micro-status">{t(language, 'live')}</span> : null}
         </div>
 
         <div className="galaxy-micro-actions">
@@ -134,10 +140,95 @@ export function GalaxyPage({
               onOpenObservatory({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
             }}
           >
-            {t(language, 'observe')}
+            {t(language, 'project_backstage')}
           </button>
         </div>
       </header>
+
+      <aside className="session-stage-rail" aria-label={t(language, 'session_front')}>
+        <div className="session-stage-head">
+          <div>
+            <div className="observatory-card-kicker">{t(language, 'session_front')}</div>
+            <strong className="session-stage-title">{selectedTask?.title || t(language, 'active_sessions')}</strong>
+          </div>
+          <button
+            type="button"
+            className="session-stage-backstage"
+            onClick={() => onOpenObservatory(null)}
+          >
+            {t(language, 'project_backstage')}
+          </button>
+        </div>
+
+        <section className="session-stage-section">
+          <div className="session-stage-section-head">
+            <span>{t(language, 'active_sessions')}</span>
+            <span className="observatory-summary-chip">{activeTasks.length}</span>
+          </div>
+          {activeTasks.length === 0 ? (
+            <div className="session-stage-empty">{t(language, 'session_stage_empty')}</div>
+          ) : (
+            <div className="session-stage-list">
+              {activeTasks.map((task) => {
+                const isSelected = selectedTask?.taskId === task.taskId
+                const primaryHero = task.primaryHeroId ? heroes.find((hero) => hero.heroId === task.primaryHeroId) ?? null : null
+
+                return (
+                  <button
+                    key={task.taskId}
+                    type="button"
+                    className={`session-stage-card ${isSelected ? 'session-stage-card-active' : ''}`}
+                    onClick={() => onSelectNode(task.taskId, null)}
+                  >
+                    <div className="session-stage-card-head">
+                      <strong>{task.title}</strong>
+                      <span>{formatStatusLabel(task.status, language)}</span>
+                    </div>
+                    <p className="session-stage-card-copy">{buildSessionSummary(task, language)}</p>
+                    <div className="session-stage-card-meta">
+                      <span>{formatRoundLabel(task.verdictRound + 1, language)}</span>
+                      <span>
+                        {task.primaryHeroId
+                          ? t(language, 'primary_hero', {
+                              hero: primaryHero ? resolveHeroDisplayName(primaryHero, language) : task.primaryHeroId,
+                            })
+                          : t(language, 'routing_hero')}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="session-stage-section">
+          <div className="session-stage-section-head">
+            <span>{t(language, 'session_history')}</span>
+            <span className="observatory-summary-chip">{archivedTasks.length}</span>
+          </div>
+          {archivedTasks.length === 0 ? (
+            <div className="session-stage-empty">{t(language, 'session_archive_empty')}</div>
+          ) : (
+            <div className="session-stage-history">
+              {archivedTasks.slice(0, 6).map((task) => (
+                <button
+                  key={task.taskId}
+                  type="button"
+                  className={`session-stage-history-item ${selectedTask?.taskId === task.taskId ? 'session-stage-history-item-active' : ''}`}
+                  onClick={() => onSelectNode(task.taskId, null)}
+                >
+                  <div className="session-stage-history-head">
+                    <strong>{task.title}</strong>
+                    <span>{formatStatusLabel(task.status, language)}</span>
+                  </div>
+                  <p>{buildSessionSummary(task, language)}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      </aside>
 
       <ConstellationView
         heroes={heroes}
@@ -145,6 +236,7 @@ export function GalaxyPage({
         flows={flows}
         language={language}
         selectedNodeId={selectedNodeId}
+        autoFocusTarget={autoFocusTarget}
         onSelectNode={onSelectNode}
       />
 
@@ -175,7 +267,7 @@ export function GalaxyPage({
         }}
       >
         <span className="observatory-hotzone-glow" />
-        <span className="observatory-hotzone-text">{t(language, 'observe')}</span>
+        <span className="observatory-hotzone-text">{t(language, 'backstage_short')}</span>
       </button>
     </main>
   )

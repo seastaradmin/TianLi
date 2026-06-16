@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TianLi Harness - 产品宣讲 PPT</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow-x: hidden;
+        }
+        
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+            position: relative;
+            background: white;
+            page-break-after: always;
+        }
+        
+        .slide:nth-child(odd) {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        
+        .slide:nth-child(even) {
+            background: white;
+        }
+        
+        .slide-number {
+            position: absolute;
+            bottom: 20px;
+            right: 30px;
+            font-size: 14px;
+            color: #64748b;
+        }
+        
+        h1 {
+            font-size: 72px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        h2 {
+            font-size: 56px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 40px;
+            text-align: center;
+        }
+        
+        h3 {
+            font-size: 36px;
+            font-weight: 600;
+            color: #6366f1;
+            margin-bottom: 30px;
+        }
+        
+        p {
+            font-size: 28px;
+            color: #475569;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 1000px;
+        }
+        
+        .subtitle {
+            font-size: 36px;
+            color: #64748b;
+            margin-bottom: 60px;
+        }
+        
+        .content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+            max-width: 1200px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 40px;
+            width: 100%;
+            margin-top: 40px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h4 {
+            font-size: 28px;
+            color: #6366f1;
+            margin-bottom: 15px;
+        }
+        
+        .card p {
+            font-size: 20px;
+            text-align: left;
+            margin-bottom: 0;
+        }
+        
+        .feature-list {
+            list-style: none;
+            text-align: left;
+        }
+        
+        .feature-list li {
+            font-size: 28px;
+            color: #475569;
+            margin-bottom: 20px;
+            padding-left: 40px;
+            position: relative;
+        }
+        
+        .feature-list li:before {
+            content: "✅";
+            position: absolute;
+            left: 0;
+        }
+        
+        .stat {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .stat-number {
+            font-size: 96px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .stat-label {
+            font-size: 24px;
+            color: #64748b;
+            margin-top: 10px;
+        }
+        
+        .logo {
+            width: 200px;
+            height: 200px;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border-radius: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 120px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(99, 102, 241, 0.3);
+        }
+        
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 16px;
+            color: #94a3b8;
+        }
+        
+        .highlight {
+            color: #6366f1;
+            font-weight: 700;
+        }
+        
+        @media print {
+            .slide {
+                page-break-after: always;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Slide 1: 封面 -->
+    <div class="slide">
+        <div class="logo">🦞</div>
+        <h1>TianLi Harness</h1>
+        <p class="subtitle">天理 Harness - 专业交付引擎</p>
+        <p>让 AI Agent 真正具备交付能力</p>
+        <div class="footer">2026-03-24</div>
+        <div class="slide-number">1</div>
+    </div>
+
+    <!-- Slide 2: 问题 -->
+    <div class="slide">
+        <h2>🤔 现有 AI 工具的痛点</h2>
+        <div class="content">
+            <ul class="feature-list">
+                <li>只会聊天，<span class="highlight">无法交付实际成果</span></li>
+                <li>缺少<span class="highlight">专业角色分工</span>，什么都懂一点但都不精</li>
+                <li>没有<span class="highlight">质量保证机制</span>，输出全凭运气</li>
+                <li>无法<span class="highlight">跨会话记忆</span>，每次都从零开始</li>
+            </ul>
+        </div>
+        <div class="footer">TianLi Harness - 产品宣讲</div>
+        <div class="slide-number">2</div>
+    </div>
+
+    <!-- Slide 3: 解决方案 -->
+    <div class="slide">
+        <h2>💡 天理的解决方案</h2>
+        <div class="grid">
+            <div class="card">
+                <h4>🦸 专业 Hero 系统</h4>
+                <p>19 个专业角色，每个都是领域专家</p>
+            </div>
+            <div class="card">
+                <h4>🛡️ 分层审计</h4>
+                <p>L1 规则 + L2 语义，双重质量保证</p>
+            </div>
+            <div class="card">
+                <h4>🧠 项目记忆</h4>
+                <p>跨会话持久化，越用越懂你</p>
+            </div>
+            <div class="card">
+                <h4>⚡ 并行执行</h4>
+                <p>多 Hero 协作，效率提升 5 倍</p>
+            </div>
+        </div>
+        <div class="footer">TianLi Harness - 产品宣讲</div>
+        <div class="slide-number">3</div>
+    </div>
+
+    <!-- Slide 4: 产品特性 -->
+    <div class="slide">
+        <h2>🚀 核心特性</h2>
+        <div class="content">
+            <ul class="feature-list">
+                <li><span class="highlight">19 个专业 Heroes</span> - PM、开发、QA、设计等</li>
+                <li><span class="highlight">天劫审计系统</span> - L1+L2 双重质量检查</li>
+                <li><span class="highlight">天演进化机制</span> - 从失败中自动学习优化</li>
+                <li><span class="highlight">多平台支持</span> - OpenClaw/Cursor/Claude Code 等</li>
+                <li><span class="highlight">173 个技能</span> - 4 个预定义 + 154 个 Registry</li>
+            </ul>
+        </div>
+        <div class="footer">TianLi Harness - 产品宣讲</div>
+        <div class="slide-number">4</div>
+    </div>
+
+    <!-- Slide 5: 客户案例 -->
+    <div class="slide">
+        <h2>📊 实测数据</h2>
+        <div class="grid">
+            <div class="stat">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">E2E 测试通过率</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">19</div>
+                <div class="stat-label">专业 Heroes</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">173</div>
+                <div class="stat-label">总技能数</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">&lt;20s</div>
+                <div class="stat-label">API 响应时间</div>
+            </div>
+        </div>
+        <div class="footer">TianLi Harness - 产品宣讲</div>
+        <div class="slide-number">5</div>
+    </div>
+
+    <!-- Slide 6: 行动计划 -->
+    <div class="slide">
+        <h2>🎯 立即开始</h2>
+        <div class="content">
+            <ul class="feature-list">
+                <li><span class="highlight">查看文档</span> - https://github.com/seastaradmin/TianLi</li>
+                <li><span class="highlight">安装使用</span> - pip install -r requirements.txt</li>
+                <li><span class="highlight">运行测试</span> - python3 tests/test_e2e_full.py</li>
+                <li><span class="highlight">访问前端</span> - http://localhost:1421</li>
+            </ul>
+        </div>
+        <div class="footer">TianLi Harness - 产品宣讲</div>
+        <div class="slide-number">6</div>
+    </div>
+
+    <!-- Slide 7: 结束页 -->
+    <div class="slide">
+        <div class="logo">🦞</div>
+        <h1>谢谢！</h1>
+        <p class="subtitle">Q & A</p>
+        <p>GitHub: https://github.com/seastaradmin/TianLi</p>
+        <div class="footer">TianLi Harness - 专业交付引擎</div>
+        <div class="slide-number">7</div>
+    </div>
+</body>
+</html>

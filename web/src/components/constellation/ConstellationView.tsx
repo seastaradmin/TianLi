@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
-import { Html, Line, OrbitControls } from '@react-three/drei'
+import { Html, Line, OrbitControls, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
 import {
@@ -12,6 +12,8 @@ import {
   t,
 } from '../../i18n'
 import type { FlowState, HeroState, Language, TaskState, UiAnchor } from '../../types'
+import { buildRegionTelemetry, getHeroOwner } from '../../utils/regions'
+import { isActiveSessionTask } from '../../utils/tasks'
 
 interface ConstellationViewProps {
   heroes: HeroState[]
@@ -19,6 +21,7 @@ interface ConstellationViewProps {
   flows: FlowState[]
   language: Language
   selectedNodeId: string | null
+  autoFocusTarget?: { nodeId: string; token: number } | null
   onSelectNode: (nodeId: string | null, anchor?: { x: number; y: number } | null) => void
 }
 
@@ -40,6 +43,7 @@ interface SceneTaskModel {
   statusColor: string
   selected: boolean
   dimmed: boolean
+  active: boolean
 }
 
 interface SceneFlowModel {
@@ -63,6 +67,11 @@ interface SceneConstellationModel {
   labelZh: string
   labelEn: string
   count: number
+  activeTaskCount: number
+  busyHeroCount: number
+  earlyExitCount: number
+  latestTaskId: string | null
+  latestTaskTitle: string | null
   representativeHeroId: string
   navVisible: boolean
   focusDistance: number
@@ -87,26 +96,105 @@ type ControlsHandle = {
   update: () => void
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  idle: '#b8d9de',
-  issued: '#c7d9f8',
-  routing: '#8cdfe2',
-  consulting: '#d2cef2',
-  running: '#9ddedd',
-  synthesizing: '#c8d4f0',
-  judgment_pending: '#d7dde8',
-  accepted: '#7fd7d4',
-  rejected: '#d4c7de',
-  completed: '#72d5cf',
-  early_exit: '#b7d6d6',
-  recovering: '#b7d6d6',
-  failed: '#d9cdda',
-  error: '#d9cdda',
+interface PlanetSurfaceProfile {
+  id: string
+  texturePath: string
+  atmosphereColor: string
+  haloColor: string
+  surfaceTint: string
+  ringColor?: string
+  ringTilt?: number
+  roughness: number
+  metalness: number
 }
 
-const OUTER_HERO_RADIUS = 1720
+const STATUS_COLORS: Record<string, string> = {
+  idle: '#6a8db8',
+  issued: '#88a8ff',
+  routing: '#59c8ff',
+  consulting: '#9e90ff',
+  running: '#4fe0c8',
+  synthesizing: '#8fbdf8',
+  judgment_pending: '#f0c26c',
+  accepted: '#7be1bd',
+  rejected: '#ff88ab',
+  completed: '#63ded5',
+  early_exit: '#7da5b7',
+  recovering: '#7da5b7',
+  failed: '#af84a7',
+  error: '#ff6e8d',
+}
+
+const OUTER_HERO_RADIUS = 2120
 const TEST_MODE =
   import.meta.env.MODE === 'test' || (typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent))
+const PLANET_SURFACE_LIBRARY: PlanetSurfaceProfile[] = [
+  {
+    id: 'earth',
+    texturePath: '/textures/nasa/earth-b.jpg',
+    atmosphereColor: '#7fd3ff',
+    haloColor: '#b3e7ff',
+    surfaceTint: '#f6fbff',
+    roughness: 0.9,
+    metalness: 0.02,
+  },
+  {
+    id: 'mars',
+    texturePath: '/textures/nasa/mars.jpg',
+    atmosphereColor: '#ffb58a',
+    haloColor: '#ff8b68',
+    surfaceTint: '#fff7f2',
+    roughness: 0.94,
+    metalness: 0.01,
+  },
+  {
+    id: 'jupiter',
+    texturePath: '/textures/nasa/jupiter.jpg',
+    atmosphereColor: '#ffd5b2',
+    haloColor: '#eec79c',
+    surfaceTint: '#fff7eb',
+    roughness: 0.98,
+    metalness: 0.01,
+  },
+  {
+    id: 'io',
+    texturePath: '/textures/nasa/io-b.jpg',
+    atmosphereColor: '#f6d97e',
+    haloColor: '#ffeaa5',
+    surfaceTint: '#fffdf3',
+    roughness: 0.96,
+    metalness: 0.01,
+  },
+  {
+    id: 'saturn',
+    texturePath: '/textures/nasa/saturn.jpg',
+    atmosphereColor: '#ffe0b3',
+    haloColor: '#f3ddaa',
+    surfaceTint: '#fff9ef',
+    ringColor: '#e8d8a9',
+    ringTilt: 0.42,
+    roughness: 0.95,
+    metalness: 0.01,
+  },
+  {
+    id: 'titan',
+    texturePath: '/textures/nasa/titan.jpg',
+    atmosphereColor: '#ffb357',
+    haloColor: '#ff8a2a',
+    surfaceTint: '#fff7ea',
+    roughness: 0.96,
+    metalness: 0.01,
+  },
+  {
+    id: 'enceladus',
+    texturePath: '/textures/nasa/enceladus.jpg',
+    atmosphereColor: '#d6e7ff',
+    haloColor: '#eef6ff',
+    surfaceTint: '#f8fbff',
+    roughness: 1,
+    metalness: 0.01,
+  },
+]
 
 function hash01(input: string) {
   let hash = 2166136261
@@ -125,39 +213,213 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-function titleCaseSegment(segment: string) {
-  if (!segment) {
-    return segment
+function seededRandom(seedInput: string) {
+  let seed = Math.max(1, Math.floor(hash01(seedInput) * 2147483646))
+  return () => {
+    seed = (seed * 16807) % 2147483647
+    return (seed - 1) / 2147483646
   }
-  return segment.charAt(0).toUpperCase() + segment.slice(1)
 }
 
-function humanizeOwner(owner: string) {
-  return owner
-    .split(/[-_]/g)
-    .filter(Boolean)
-    .map(titleCaseSegment)
-    .join(' ')
+function mixColor(left: string, right: string, amount: number) {
+  const color = new THREE.Color(left).lerp(new THREE.Color(right), amount)
+  return `#${color.getHexString()}`
 }
 
-function ownerToRegionLabels(owner: string) {
-  const base = humanizeOwner(owner)
-  return {
-    zh: `${base} 星域`,
-    en: `${base} Reach`,
+function colorToRgba(colorValue: string, alpha: number) {
+  const color = new THREE.Color(colorValue)
+  return `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${alpha})`
+}
+
+function blackbodyColor(tempK: number) {
+  const temperature = Math.max(1000, tempK) / 100
+  let red: number
+  let green: number
+  let blue: number
+
+  if (temperature <= 66) {
+    red = 255
+    green = 99.4708025861 * Math.log(temperature) - 161.1195681661
+    blue = temperature <= 19 ? 0 : 138.5177312231 * Math.log(temperature - 10) - 305.0447927307
+  } else {
+    red = 329.698727446 * Math.pow(temperature - 60, -0.1332047592)
+    green = 288.1221695283 * Math.pow(temperature - 60, -0.0755148492)
+    blue = 255
   }
+
+  return new THREE.Color(
+    clamp(red, 0, 255) / 255,
+    clamp(green, 0, 255) / 255,
+    clamp(blue, 0, 255) / 255,
+  )
+}
+
+function sampleStarTemperature(value: number) {
+  if (value < 0.003) {
+    return 30000 + value * 5_000_000
+  }
+  if (value < 0.01) {
+    return 10000 + value * 1_000_000
+  }
+  if (value < 0.04) {
+    return 7500 + value * 60_000
+  }
+  if (value < 0.11) {
+    return 6000 + value * 15_000
+  }
+  if (value < 0.23) {
+    return 5200 + value * 5000
+  }
+  if (value < 0.5) {
+    return 3700 + value * 3000
+  }
+  return 2400 + value * 2600
+}
+
+function buildCelestialStarfieldData(
+  seedKey: string,
+  count: number,
+  options: {
+    minRadius: number
+    maxRadius: number
+    band?: boolean
+    bandSpread?: number
+    brightnessRange?: [number, number]
+  },
+) {
+  const random = seededRandom(seedKey)
+  const positions = new Float32Array(count * 3)
+  const colors = new Float32Array(count * 3)
+  const galacticRotation = new THREE.Euler(-0.88, 0.42, 0.28)
+  const [minBrightness, maxBrightness] = options.brightnessRange ?? [0.18, 0.82]
+
+  for (let index = 0; index < count; index += 1) {
+    const radius = mix(options.minRadius, options.maxRadius, random())
+    const direction = new THREE.Vector3()
+
+    if (options.band) {
+      const longitude = random() * Math.PI * 2
+      const latitude = (random() > 0.5 ? 1 : -1) * Math.pow(random(), 2.3) * (options.bandSpread ?? 0.22)
+      const cosLatitude = Math.cos(latitude)
+      direction.set(Math.cos(longitude) * cosLatitude, Math.sin(latitude), Math.sin(longitude) * cosLatitude)
+      direction.applyEuler(galacticRotation)
+    } else {
+      const theta = random() * Math.PI * 2
+      const phi = Math.acos(2 * random() - 1)
+      direction.set(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta))
+    }
+
+    const temperature = sampleStarTemperature(random())
+    const color = blackbodyColor(temperature)
+    const brightness = mix(minBrightness, maxBrightness, 1 - Math.pow(random(), options.band ? 1.8 : 2.6))
+    color.multiplyScalar(brightness)
+    if (options.band) {
+      color.lerp(new THREE.Color('#ffe3b7'), 0.06)
+    }
+
+    positions[index * 3] = direction.x * radius
+    positions[index * 3 + 1] = direction.y * radius
+    positions[index * 3 + 2] = direction.z * radius
+
+    colors[index * 3] = color.r
+    colors[index * 3 + 1] = color.g
+    colors[index * 3 + 2] = color.b
+  }
+
+  return { positions, colors }
+}
+
+function buildMilkyWayTexture(seedKey: string) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 2048
+  canvas.height = 512
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return new THREE.Texture()
+  }
+
+  const random = seededRandom(seedKey)
+  context.clearRect(0, 0, canvas.width, canvas.height)
+
+  const background = context.createLinearGradient(0, 0, canvas.width, canvas.height)
+  background.addColorStop(0, 'rgba(255,255,255,0)')
+  background.addColorStop(0.5, 'rgba(255,255,255,0.02)')
+  background.addColorStop(1, 'rgba(255,255,255,0)')
+  context.fillStyle = background
+  context.fillRect(0, 0, canvas.width, canvas.height)
+
+  for (let index = 0; index < 28; index += 1) {
+    const x = canvas.width * mix(0.06, 0.94, index / 27)
+    const y = canvas.height * (0.46 + Math.sin(index * 0.44) * 0.06 + (random() - 0.5) * 0.04)
+    const radiusX = 90 + random() * 180
+    const radiusY = 24 + random() * 52
+    const core = context.createRadialGradient(x, y, 2, x, y, radiusX)
+    core.addColorStop(0, colorToRgba(mixColor('#fff1d1', '#dce8ff', random() * 0.45), 0.24 + random() * 0.14))
+    core.addColorStop(0.38, colorToRgba(mixColor('#ffe2a8', '#a7c7ff', random() * 0.55), 0.12 + random() * 0.08))
+    core.addColorStop(1, 'rgba(255,255,255,0)')
+    context.fillStyle = core
+    context.beginPath()
+    context.ellipse(x, y, radiusX, radiusY, random() * 0.1 - 0.05, 0, Math.PI * 2)
+    context.fill()
+  }
+
+  context.globalCompositeOperation = 'destination-out'
+  for (let laneIndex = 0; laneIndex < 3; laneIndex += 1) {
+    context.beginPath()
+    context.moveTo(0, canvas.height * (0.46 + laneIndex * 0.03))
+    for (let step = 0; step <= 16; step += 1) {
+      const progress = step / 16
+      const x = progress * canvas.width
+      const y =
+        canvas.height * (0.46 + laneIndex * 0.03) +
+        Math.sin(progress * Math.PI * 3.8 + laneIndex * 0.7) * 16 +
+        (random() - 0.5) * 12
+      context.lineTo(x, y)
+    }
+    context.strokeStyle = `rgba(0, 0, 0, ${laneIndex === 1 ? 0.26 : 0.14})`
+    context.lineWidth = laneIndex === 1 ? 18 : 10
+    context.stroke()
+  }
+  context.globalCompositeOperation = 'source-over'
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+function buildOrbitalPoints(radiusX: number, radiusY: number, count = 96) {
+  const points: [number, number, number][] = []
+  for (let index = 0; index <= count; index += 1) {
+    const angle = (index / count) * Math.PI * 2
+    points.push([Math.cos(angle) * radiusX, Math.sin(angle) * radiusY, 0])
+  }
+  return points
+}
+
+function resolvePlanetSurfaceProfile(heroId: string) {
+  const index = Math.floor(hash01(`${heroId}:planet-profile`) * PLANET_SURFACE_LIBRARY.length) % PLANET_SURFACE_LIBRARY.length
+  return PLANET_SURFACE_LIBRARY[index] ?? PLANET_SURFACE_LIBRARY[0]
 }
 
 function resolveRegionLabel(region: SceneConstellationModel, language: Language) {
   return language === 'zh' ? region.labelZh : region.labelEn
 }
 
-function getHeroOwner(heroId: string) {
-  const parts = heroId.split('/')
-  if (parts[0] !== 'skill') {
-    return null
+function formatRegionFeedback(region: SceneConstellationModel, language: Language) {
+  if (region.activeTaskCount === 0 && region.busyHeroCount === 0 && region.earlyExitCount === 0) {
+    return t(language, 'region_feedback_quiet')
   }
-  return parts[1] || 'skills'
+
+  const base =
+    language === 'zh'
+      ? `${region.activeTaskCount} 天命 · ${region.busyHeroCount} 出征`
+      : `${region.activeTaskCount} destin${region.activeTaskCount === 1 ? 'y' : 'ies'} · ${region.busyHeroCount} active`
+
+  if (region.earlyExitCount === 0) {
+    return base
+  }
+
+  return language === 'zh' ? `${base} · ${region.earlyExitCount} 天劫` : `${base} · ${region.earlyExitCount} early exits`
 }
 
 function averagePoints(points: [number, number, number][]) {
@@ -191,73 +453,6 @@ function buildGlowTexture(innerColor: string, outerColor: string, falloff = 1) {
   context.clearRect(0, 0, 256, 256)
   context.fillStyle = gradient
   context.fillRect(0, 0, 256, 256)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
-function buildIndentedNodeTexture() {
-  const canvas = document.createElement('canvas')
-  canvas.width = 256
-  canvas.height = 256
-  const context = canvas.getContext('2d')
-  if (!context) {
-    return new THREE.Texture()
-  }
-
-  const center = 128
-  const radius = 88
-  context.clearRect(0, 0, 256, 256)
-
-  const outerGlow = context.createRadialGradient(center, center, radius * 0.65, center, center, radius * 1.32)
-  outerGlow.addColorStop(0, 'rgba(255, 255, 255, 0)')
-  outerGlow.addColorStop(0.75, 'rgba(0, 206, 209, 0.06)')
-  outerGlow.addColorStop(1, 'rgba(0, 206, 209, 0)')
-  context.fillStyle = outerGlow
-  context.fillRect(0, 0, 256, 256)
-
-  context.save()
-  context.beginPath()
-  context.arc(center, center, radius, 0, Math.PI * 2)
-  context.closePath()
-  context.clip()
-
-  const baseGradient = context.createLinearGradient(center - radius, center - radius, center + radius, center + radius)
-  baseGradient.addColorStop(0, '#ffffff')
-  baseGradient.addColorStop(0.38, '#f6fbfd')
-  baseGradient.addColorStop(1, '#e8eef1')
-  context.fillStyle = baseGradient
-  context.fillRect(center - radius, center - radius, radius * 2, radius * 2)
-
-  const topLight = context.createRadialGradient(center - 28, center - 34, 10, center - 28, center - 34, radius * 1.2)
-  topLight.addColorStop(0, 'rgba(255, 255, 255, 0.98)')
-  topLight.addColorStop(0.48, 'rgba(255, 255, 255, 0.58)')
-  topLight.addColorStop(1, 'rgba(255, 255, 255, 0)')
-  context.fillStyle = topLight
-  context.fillRect(center - radius, center - radius, radius * 2, radius * 2)
-
-  const innerShadow = context.createRadialGradient(center + 18, center + 22, radius * 0.22, center + 18, center + 22, radius * 1.06)
-  innerShadow.addColorStop(0, 'rgba(180, 197, 205, 0)')
-  innerShadow.addColorStop(0.6, 'rgba(182, 197, 205, 0.08)')
-  innerShadow.addColorStop(1, 'rgba(132, 151, 164, 0.34)')
-  context.fillStyle = innerShadow
-  context.fillRect(center - radius, center - radius, radius * 2, radius * 2)
-
-  const innerWell = context.createRadialGradient(center, center + 10, radius * 0.12, center, center + 10, radius * 0.88)
-  innerWell.addColorStop(0, 'rgba(255, 255, 255, 0)')
-  innerWell.addColorStop(0.52, 'rgba(238, 244, 247, 0.1)')
-  innerWell.addColorStop(1, 'rgba(182, 194, 201, 0.38)')
-  context.fillStyle = innerWell
-  context.fillRect(center - radius, center - radius, radius * 2, radius * 2)
-
-  context.restore()
-
-  context.beginPath()
-  context.arc(center, center, radius, 0, Math.PI * 2)
-  context.strokeStyle = 'rgba(255, 255, 255, 0.92)'
-  context.lineWidth = 3
-  context.stroke()
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -328,7 +523,7 @@ function buildHeroPosition(hero: HeroState, index: number, total: number): [numb
 function buildRegionCenter(owner: string, groupIndex: number): [number, number, number] {
   const spiralIndex = groupIndex + 1
   const angle = spiralIndex * (Math.PI * (3 - Math.sqrt(5))) + hash01(`${owner}:angle`) * 0.62
-  const radius = 880 + Math.sqrt(spiralIndex) * 320 + (groupIndex % 3) * 64
+  const radius = 1080 + Math.sqrt(spiralIndex) * 360 + (groupIndex % 3) * 86
   const x = Math.cos(angle) * radius
   const z = Math.sin(angle) * radius * 0.88
   const y = (hash01(`${owner}:height`) - 0.5) * 220 + Math.sin(angle * 1.4) * 40
@@ -394,6 +589,7 @@ function buildTaskPosition(
 
 function buildConstellationModels(heroModels: SceneHeroModel[], tasks: TaskState[], selectedNodeId: string | null) {
   const constellations: SceneConstellationModel[] = []
+  const telemetryById = new Map(buildRegionTelemetry(heroModels.map((hero) => hero.hero), tasks).map((entry) => [entry.id, entry]))
 
   const localHeroes = heroModels.filter((hero) => hero.hero.source === 'local')
   if (localHeroes.length >= 3) {
@@ -405,16 +601,22 @@ function buildConstellationModels(heroModels: SceneHeroModel[], tasks: TaskState
       !selectedNodeId ||
       heroIds.includes(selectedNodeId) ||
       tasks.some((task) => task.taskId === selectedNodeId && task.selectedHeroIds.some((heroId) => heroIds.includes(heroId)))
+    const localTelemetry = telemetryById.get('constellation-local')
     constellations.push({
       id: 'constellation-local',
       heroIds,
       points,
       center: averagePoints(points),
-      color: '#d9e4e9',
+      color: '#44618e',
       dimmed: !isRelated,
-      labelZh: '天理主星域',
-      labelEn: 'TianLi Core',
+      labelZh: localTelemetry?.labelZh ?? '天理主星域',
+      labelEn: localTelemetry?.labelEn ?? 'TianLi Core',
       count: heroIds.length,
+      activeTaskCount: localTelemetry?.activeTaskCount ?? 0,
+      busyHeroCount: localTelemetry?.busyHeroCount ?? 0,
+      earlyExitCount: localTelemetry?.earlyExitCount ?? 0,
+      latestTaskId: localTelemetry?.latestTaskId ?? null,
+      latestTaskTitle: localTelemetry?.latestTaskTitle ?? null,
       representativeHeroId: heroIds[0],
       navVisible: true,
       focusDistance: 520,
@@ -451,17 +653,22 @@ function buildConstellationModels(heroModels: SceneHeroModel[], tasks: TaskState
       !selectedNodeId ||
       heroIds.includes(selectedNodeId) ||
       tasks.some((task) => task.taskId === selectedNodeId && task.selectedHeroIds.some((heroId) => heroIds.includes(heroId)))
-    const labels = ownerToRegionLabels(owner)
+    const regionTelemetry = telemetryById.get(`constellation-${owner}`)
     constellations.push({
       id: `constellation-${owner}`,
       heroIds,
       points: ordered.map((hero) => hero.position),
       center,
-      color: '#dfe7ea',
+      color: '#38567f',
       dimmed: !isRelated,
-      labelZh: labels.zh,
-      labelEn: labels.en,
+      labelZh: regionTelemetry?.labelZh ?? owner,
+      labelEn: regionTelemetry?.labelEn ?? owner,
       count: group.length,
+      activeTaskCount: regionTelemetry?.activeTaskCount ?? 0,
+      busyHeroCount: regionTelemetry?.busyHeroCount ?? 0,
+      earlyExitCount: regionTelemetry?.earlyExitCount ?? 0,
+      latestTaskId: regionTelemetry?.latestTaskId ?? null,
+      latestTaskTitle: regionTelemetry?.latestTaskTitle ?? null,
       representativeHeroId: ordered[0]?.hero.heroId ?? heroIds[0],
       navVisible: true,
       focusDistance: clamp(560 + group.length * 18, 560, 980),
@@ -479,7 +686,7 @@ function buildSceneModel(heroes: HeroState[], tasks: TaskState[], flows: FlowSta
   const heroModels: SceneHeroModel[] = []
   localHeroes.forEach((hero, index) => {
     const position = buildHeroPosition(hero, index, localHeroes.length)
-    const skillIds = heroSkillMap.get(hero.heroId) ?? []
+    const skillIds = Array.from(new Set([...(hero.linkedSkills ?? []), ...(heroSkillMap.get(hero.heroId) ?? [])]))
     const statusColor = STATUS_COLORS[hero.status] || '#8edddd'
     const active = hero.currentTaskIds.length > 0 || hero.status !== 'idle'
     heroModels.push({
@@ -507,7 +714,7 @@ function buildSceneModel(heroes: HeroState[], tasks: TaskState[], flows: FlowSta
     const regionCenter = buildRegionCenter(owner, groupIndex)
     group.forEach((hero, memberIndex) => {
       const position = buildClusteredRemotePosition(hero, regionCenter, memberIndex, group.length)
-      const skillIds = heroSkillMap.get(hero.heroId) ?? []
+      const skillIds = Array.from(new Set([...(hero.linkedSkills ?? []), ...(heroSkillMap.get(hero.heroId) ?? [])]))
       const statusColor = STATUS_COLORS[hero.status] || '#8edddd'
       const active = hero.currentTaskIds.length > 0 || hero.status !== 'idle'
       heroModels.push({
@@ -524,16 +731,18 @@ function buildSceneModel(heroes: HeroState[], tasks: TaskState[], flows: FlowSta
   })
 
   const heroPositionMap = new Map(heroModels.map((hero) => [hero.hero.heroId, hero.position]))
+  const visibleTasks = tasks.filter(isActiveSessionTask)
 
-  const taskModels = tasks.map((task, index) => {
+  const taskModels = visibleTasks.map((task, index) => {
     const statusColor = STATUS_COLORS[task.status] || '#c8dbe4'
     return {
       task,
-      position: buildTaskPosition(task, index, tasks.length, heroPositionMap),
+      position: buildTaskPosition(task, index, visibleTasks.length, heroPositionMap),
       size: 26 + Math.min(3, task.selectedHeroIds.length) * 3,
       statusColor,
       selected: task.taskId === selectedNodeId,
       dimmed: !taskRelatesToSelection(task, selectedNodeId),
+      active: true,
     } satisfies SceneTaskModel
   })
 
@@ -565,7 +774,7 @@ function buildSceneModel(heroes: HeroState[], tasks: TaskState[], flows: FlowSta
         start,
         end,
         mid,
-        color: '#d9dee2',
+        color: flow.role === 'consult' ? '#5e89c7' : '#6fd8df',
         dimmed: !isRelated,
         pulseOffset: hash01(`${flow.id}:offset`),
         pulseSpeed: mix(0.08, 0.24, hash01(`${flow.id}:speed`)),
@@ -629,19 +838,18 @@ function findMagneticSelection(anchor: UiAnchor, camera: THREE.Camera | null, ca
   }
 
   scene.tasks.forEach((task) => evaluateCandidate(task.task.taskId, task.position, clamp(38 + task.size * 0.72, 48, 88)))
-  scene.heroes.forEach((hero) => evaluateCandidate(hero.hero.heroId, hero.position, clamp(36 + hero.size * 0.94, 44, 80)))
 
   return bestMatch
 }
 
-function StarfieldFallback({ heroes, tasks, language, onSelectNode }: ConstellationViewProps) {
-  const heroSkillMap = buildSkillMap(tasks)
+function StarfieldFallback({ tasks, language, onSelectNode }: ConstellationViewProps) {
   const fallbackAnchor = { x: 220, y: 180 }
+  const activeTasks = tasks.filter(isActiveSessionTask)
 
   return (
     <section className="celestial-stage celestial-stage-fallback" aria-label={t(language, 'galaxy_stage')}>
       <div className="celestial-stage-fallback-copy">
-        {tasks.map((task) => (
+        {activeTasks.map((task) => (
           <button
             key={task.taskId}
             type="button"
@@ -652,29 +860,6 @@ function StarfieldFallback({ heroes, tasks, language, onSelectNode }: Constellat
             <strong>{task.title}</strong>
           </button>
         ))}
-
-        {heroes.map((hero) => {
-          const skillIds = heroSkillMap.get(hero.heroId) ?? []
-          return (
-            <button
-              key={hero.heroId}
-              type="button"
-              className="celestial-stage-fallback-hero"
-              onClick={() => onSelectNode(hero.heroId, fallbackAnchor)}
-            >
-              <strong>{resolveHeroDisplayName(hero, language)}</strong>
-              <span>
-                {formatStatusLabel(hero.status, language)}
-                {skillIds.length > 0 ? ` · ${formatSkillCountLabel(skillIds.length, language)}` : ''}
-              </span>
-              {skillIds.map((skillId) => (
-                <small key={skillId} title={skillId}>
-                  {skillId}
-                </small>
-              ))}
-            </button>
-          )
-        })}
       </div>
     </section>
   )
@@ -707,11 +892,12 @@ function pointOnQuadraticBezier(
   return [x, y, z]
 }
 
-function BrightNode({
+function HeroPlanetNode({
   nodeId,
   position,
   size,
   accentColor,
+  planetProfile,
   dimmed,
   selected,
   hovered,
@@ -719,9 +905,7 @@ function BrightNode({
   title,
   subtitle,
   labelClassName,
-  nodeTexture,
   glowTexture,
-  coreTexture,
   onSelect,
   onHover,
 }: {
@@ -729,6 +913,7 @@ function BrightNode({
   position: [number, number, number]
   size: number
   accentColor: string
+  planetProfile: PlanetSurfaceProfile
   dimmed: boolean
   selected: boolean
   hovered: boolean
@@ -736,164 +921,440 @@ function BrightNode({
   title: string
   subtitle: string
   labelClassName?: string
-  nodeTexture: THREE.Texture
   glowTexture: THREE.Texture
-  coreTexture: THREE.Texture
   onSelect: (nodeId: string, event: ThreeEvent<MouseEvent>) => void
   onHover: (nodeId: string | null) => void
 }) {
   const groupRef = useRef<THREE.Group>(null)
-  const floatRef = useRef<THREE.Group>(null)
+  const planetRef = useRef<THREE.Mesh>(null)
+  const atmosphereRef = useRef<THREE.Mesh>(null)
+  const ringRef = useRef<THREE.Mesh>(null)
   const showLabel = selected || hovered
-  const opacity = dimmed ? 0.24 : 1
-  const glowOpacity = selected ? 0.54 : hovered ? 0.72 : active ? 0.36 : 0.22
-  const targetScale = selected ? 1.08 : hovered ? 1.1 : 1
+  const opacity = dimmed ? 0.22 : 1
+  const glowOpacity = selected ? 0.3 : hovered ? 0.24 : active ? 0.14 : 0.08
+  const targetScale = selected ? 1.1 : hovered ? 1.14 : 1
+  const planetTexture = useTexture(planetProfile.texturePath)
+
+  useEffect(() => {
+    planetTexture.colorSpace = THREE.SRGBColorSpace
+    planetTexture.wrapS = THREE.RepeatWrapping
+    planetTexture.wrapT = THREE.ClampToEdgeWrapping
+    planetTexture.needsUpdate = true
+  }, [planetTexture])
 
   useFrame(({ clock }, delta) => {
     if (groupRef.current) {
-      const nextScale = THREE.MathUtils.damp(groupRef.current.scale.x, targetScale, hovered ? 12 : 9, delta)
+      const nextScale = THREE.MathUtils.damp(groupRef.current.scale.x, targetScale, hovered ? 11 : 8, delta)
       groupRef.current.scale.setScalar(nextScale)
+      groupRef.current.position.y = position[1] + Math.sin(clock.elapsedTime * 0.34 + size * 0.06) * 5
     }
 
-    if (floatRef.current) {
-      floatRef.current.position.y = Math.sin(clock.elapsedTime * 0.52 + size) * 5
-      floatRef.current.rotation.z = Math.sin(clock.elapsedTime * 0.18 + size) * 0.028
+    if (planetRef.current) {
+      planetRef.current.rotation.y += delta * 0.18
+      planetRef.current.rotation.z = Math.sin(clock.elapsedTime * 0.12 + size) * 0.05
+    }
+
+    if (atmosphereRef.current) {
+      atmosphereRef.current.rotation.y -= delta * 0.08
+    }
+
+    if (ringRef.current) {
+      ringRef.current.rotation.z += delta * 0.04
     }
   })
 
   return (
     <group ref={groupRef} position={position}>
-      <group ref={floatRef}>
-        <mesh
-          onClick={(event) => {
-            event.stopPropagation()
-            onSelect(nodeId, event)
-          }}
-          onPointerOver={(event) => {
-            event.stopPropagation()
-            onHover(nodeId)
-          }}
-          onPointerOut={() => onHover(null)}
-        >
-          <planeGeometry args={[size * 4.2, size * 4.2]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
-
-        <sprite scale={[size * 6.4, size * 6.4, 1]} position={[0, 0, -1]}>
-          <spriteMaterial
-            map={glowTexture}
-            color="#00ced1"
-            opacity={glowOpacity * opacity}
+      {planetProfile.ringColor ? (
+        <mesh ref={ringRef} rotation={[Math.PI / 2.65, 0, planetProfile.ringTilt ?? 0]}>
+          <ringGeometry args={[size * 1.34, size * 1.9, 96]} />
+          <meshBasicMaterial
+            color={planetProfile.ringColor}
             transparent
+            opacity={(selected ? 0.44 : hovered ? 0.34 : 0.22) * opacity}
+            side={THREE.DoubleSide}
             depthWrite={false}
             blending={THREE.AdditiveBlending}
           />
-        </sprite>
+        </mesh>
+      ) : null}
 
-        <sprite scale={[size * 3.08, size * 3.08, 1]}>
-          <spriteMaterial map={nodeTexture} color="#ffffff" transparent opacity={0.98 * opacity} depthWrite={false} />
-        </sprite>
+      <mesh
+        onClick={(event) => {
+          event.stopPropagation()
+          onSelect(nodeId, event)
+        }}
+        onPointerOver={(event) => {
+          event.stopPropagation()
+          onHover(nodeId)
+        }}
+        onPointerOut={() => onHover(null)}
+      >
+        <sphereGeometry args={[size * 1.02, 36, 36]} />
+        <meshPhysicalMaterial
+          map={planetTexture}
+          color={planetProfile.surfaceTint}
+          roughness={planetProfile.roughness}
+          metalness={planetProfile.metalness}
+          clearcoat={0.1}
+          clearcoatRoughness={0.8}
+          emissive={mixColor(accentColor, planetProfile.haloColor, 0.28)}
+          emissiveIntensity={(selected ? 0.16 : hovered ? 0.1 : active ? 0.07 : 0.03) * opacity}
+          transparent
+          opacity={opacity}
+        />
+      </mesh>
 
-        <sprite scale={[size * 1.2, size * 1.2, 1]}>
-          <spriteMaterial
-            map={coreTexture}
-            color={accentColor}
-            transparent
-            opacity={(selected ? 0.88 : hovered ? 0.78 : 0.56) * opacity}
-            depthWrite={false}
-          />
-        </sprite>
+      <mesh ref={planetRef}>
+        <sphereGeometry args={[size * 0.96, 42, 42]} />
+        <meshPhysicalMaterial
+          map={planetTexture}
+          color={planetProfile.surfaceTint}
+          roughness={Math.min(1, planetProfile.roughness + 0.02)}
+          metalness={planetProfile.metalness}
+          clearcoat={0.06}
+          clearcoatRoughness={0.86}
+          emissive={mixColor(accentColor, planetProfile.haloColor, 0.16)}
+          emissiveIntensity={(selected ? 0.12 : hovered ? 0.08 : active ? 0.04 : 0.015) * opacity}
+          transparent
+          opacity={opacity}
+        />
+      </mesh>
 
-        <sprite scale={[size * 1.66, size * 1.66, 1]} position={[0, 0, 0.4]}>
-          <spriteMaterial
-            map={glowTexture}
-            color={accentColor}
-            transparent
-            opacity={(selected ? 0.2 : hovered ? 0.16 : 0.08) * opacity}
-            depthWrite={false}
-          />
-        </sprite>
+      <mesh ref={atmosphereRef} scale={1.08}>
+        <sphereGeometry args={[size * 0.98, 32, 32]} />
+        <meshBasicMaterial
+          color={planetProfile.atmosphereColor}
+          transparent
+          opacity={(selected ? 0.18 : hovered ? 0.14 : 0.08) * opacity}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
 
-        <Html center distanceFactor={11} position={[0, -size * 1.92, 0]} style={{ pointerEvents: 'none' }}>
-          <div className={`cosmic-label ${labelClassName ?? ''} ${showLabel ? 'cosmic-label-visible' : ''} ${selected ? 'cosmic-label-selected' : ''}`}>
-            <strong>{title}</strong>
-            <span>{subtitle}</span>
-          </div>
-        </Html>
-      </group>
+      <sprite scale={[size * 4.8, size * 4.8, 1]} position={[0, 0, -2.5]}>
+        <spriteMaterial
+          map={glowTexture}
+          color={mixColor(planetProfile.haloColor, accentColor, 0.28)}
+          transparent
+          opacity={glowOpacity * opacity}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      <Html center distanceFactor={11} position={[0, -size * 2.05, 0]} style={{ pointerEvents: 'none' }}>
+        <div className={`cosmic-label ${labelClassName ?? ''} ${showLabel ? 'cosmic-label-visible' : ''} ${selected ? 'cosmic-label-selected' : ''}`}>
+          <strong>{title}</strong>
+          <span>{subtitle}</span>
+        </div>
+      </Html>
     </group>
   )
 }
 
-const MemoBrightNode = memo(BrightNode)
+const MemoHeroPlanetNode = memo(HeroPlanetNode)
 
-function NebulaClouds({ texture }: { texture: THREE.Texture }) {
-  const clouds = useMemo(
-    () => [
-      { position: [-960, 180, -620] as [number, number, number], scale: [1900, 1280, 1] as [number, number, number], color: '#e0ffff', opacity: 0.18 },
-      { position: [920, -80, -940] as [number, number, number], scale: [1780, 1220, 1] as [number, number, number], color: '#e6e6fa', opacity: 0.18 },
-      { position: [520, 120, 820] as [number, number, number], scale: [1460, 1020, 1] as [number, number, number], color: '#efffff', opacity: 0.12 },
-    ],
+function DestinyFluxNode({
+  nodeId,
+  position,
+  size,
+  accentColor,
+  active,
+  dimmed,
+  selected,
+  hovered,
+  title,
+  subtitle,
+  labelClassName,
+  glowTexture,
+  pulseTexture,
+  onSelect,
+  onHover,
+}: {
+  nodeId: string
+  position: [number, number, number]
+  size: number
+  accentColor: string
+  active: boolean
+  dimmed: boolean
+  selected: boolean
+  hovered: boolean
+  title: string
+  subtitle: string
+  labelClassName?: string
+  glowTexture: THREE.Texture
+  pulseTexture: THREE.Texture
+  onSelect: (nodeId: string, event: ThreeEvent<MouseEvent>) => void
+  onHover: (nodeId: string | null) => void
+}) {
+  const groupRef = useRef<THREE.Group>(null)
+  const orbitRefA = useRef<THREE.Group>(null)
+  const orbitRefB = useRef<THREE.Group>(null)
+  const cometRef = useRef<THREE.Sprite>(null)
+  const shellRef = useRef<THREE.Mesh>(null)
+  const showLabel = selected || hovered
+  const opacity = dimmed ? 0.18 : 1
+  const targetScale = selected ? 1.08 : hovered ? 1.12 : 1
+  const orbitPoints = useMemo(() => buildOrbitalPoints(size * 1.86, size * 1.12), [size])
+  const ignition = active ? 1 : 0.55
+
+  useFrame(({ clock }, delta) => {
+    if (groupRef.current) {
+      const nextScale = THREE.MathUtils.damp(groupRef.current.scale.x, targetScale, hovered ? 12 : 9, delta)
+      groupRef.current.scale.setScalar(nextScale)
+      groupRef.current.position.y = position[1] + Math.sin(clock.elapsedTime * 0.54 + size) * 7
+    }
+
+    if (orbitRefA.current) {
+      orbitRefA.current.rotation.z += delta * 0.36
+    }
+
+    if (orbitRefB.current) {
+      orbitRefB.current.rotation.z -= delta * 0.28
+      orbitRefB.current.rotation.x = Math.PI / 2.9
+    }
+
+    if (shellRef.current) {
+      const pulse = 1 + Math.sin(clock.elapsedTime * (active ? 2.1 : 1.2) + size * 0.08) * (active ? 0.12 : 0.06)
+      shellRef.current.scale.setScalar(pulse)
+    }
+
+    if (cometRef.current) {
+      const angle = clock.elapsedTime * (active ? 1.36 : 0.72)
+      cometRef.current.position.set(Math.cos(angle) * size * 1.86, Math.sin(angle) * size * 1.12, 0.8)
+    }
+  })
+
+  return (
+    <group ref={groupRef} position={position}>
+      <mesh
+        onClick={(event) => {
+          event.stopPropagation()
+          onSelect(nodeId, event)
+        }}
+        onPointerOver={(event) => {
+          event.stopPropagation()
+          onHover(nodeId)
+        }}
+        onPointerOut={() => onHover(null)}
+      >
+        <sphereGeometry args={[size * 0.82, 28, 28]} />
+        <meshStandardMaterial
+          color={mixColor(accentColor, '#ffffff', 0.24)}
+          emissive={accentColor}
+          emissiveIntensity={(selected ? 1.95 : hovered ? 1.48 : active ? 1.2 : 0.82) * opacity}
+          roughness={0.28}
+          metalness={0.04}
+          transparent
+          opacity={opacity}
+        />
+      </mesh>
+
+      <mesh ref={shellRef} scale={1.08}>
+        <sphereGeometry args={[size * 1.08, 24, 24]} />
+        <meshBasicMaterial
+          color={mixColor(accentColor, '#dfffff', 0.14)}
+          transparent
+          opacity={(selected ? 0.24 : hovered ? 0.18 : 0.12) * opacity * ignition}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      <sprite scale={[size * 6.4, size * 6.4, 1]} position={[0, 0, -2]}>
+        <spriteMaterial
+          map={glowTexture}
+          color={accentColor}
+          transparent
+          opacity={(selected ? 0.46 : hovered ? 0.36 : active ? 0.28 : 0.18) * opacity}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      <group ref={orbitRefA}>
+        <Line points={orbitPoints} color={mixColor(accentColor, '#dff5ff', 0.18)} transparent opacity={(selected ? 0.94 : active ? 0.72 : 0.5) * opacity} lineWidth={1.2} depthWrite={false} />
+      </group>
+
+      <group ref={orbitRefB}>
+        <Line points={orbitPoints} color={mixColor(accentColor, '#7ee7ff', 0.1)} transparent opacity={(selected ? 0.52 : active ? 0.34 : 0.22) * opacity} lineWidth={0.8} depthWrite={false} dashed dashSize={9} gapSize={6} />
+      </group>
+
+      <sprite ref={cometRef} scale={[size * 1.22, size * 1.22, 1]} position={[size * 1.86, 0, 0.8]}>
+        <spriteMaterial
+          map={pulseTexture}
+          color={mixColor(accentColor, '#eafcff', 0.12)}
+          transparent
+          opacity={(selected ? 0.92 : hovered ? 0.76 : active ? 0.66 : 0.42) * opacity}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      <Html center distanceFactor={11} position={[0, -size * 2.28, 0]} style={{ pointerEvents: 'none' }}>
+        <div className={`cosmic-label ${labelClassName ?? ''} ${showLabel ? 'cosmic-label-visible' : ''} ${selected ? 'cosmic-label-selected' : ''}`}>
+          <strong>{title}</strong>
+          <span>{subtitle}</span>
+        </div>
+      </Html>
+    </group>
+  )
+}
+
+const MemoDestinyFluxNode = memo(DestinyFluxNode)
+
+function DeepSpaceBackdrop() {
+  const brightField = useMemo(
+    () => buildCelestialStarfieldData('bright-field', 220, { minRadius: 3200, maxRadius: 6800, brightnessRange: [0.74, 1] }),
     [],
   )
+  const stellarField = useMemo(
+    () => buildCelestialStarfieldData('stellar-field', 2600, { minRadius: 4200, maxRadius: 10800, brightnessRange: [0.12, 0.56] }),
+    [],
+  )
+  const milkyWayStars = useMemo(
+    () =>
+      buildCelestialStarfieldData('milky-way-stars', 3000, {
+        minRadius: 5600,
+        maxRadius: 11800,
+        band: true,
+        bandSpread: 0.19,
+        brightnessRange: [0.16, 0.64],
+      }),
+    [],
+  )
+  const deepField = useMemo(
+    () =>
+      buildCelestialStarfieldData('deep-field', 1800, {
+        minRadius: 9000,
+        maxRadius: 14500,
+        band: true,
+        bandSpread: 0.34,
+        brightnessRange: [0.05, 0.18],
+      }),
+    [],
+  )
+  const milkyWayTexture = useMemo(() => buildMilkyWayTexture('milky-way-band'), [])
+  const brightFieldRef = useRef<THREE.PointsMaterial>(null)
+  const stellarFieldRef = useRef<THREE.PointsMaterial>(null)
+  const milkyWayFieldRef = useRef<THREE.PointsMaterial>(null)
+  const deepFieldRef = useRef<THREE.PointsMaterial>(null)
+  const milkyWayBandRef = useRef<THREE.Group>(null)
+  const camera = useThree((state) => state.camera)
+
+  useFrame(({ clock }) => {
+    const zoomFactor = clamp((camera.position.length() - 1500) / 5200, 0, 1)
+
+    if (brightFieldRef.current) {
+      brightFieldRef.current.opacity = mix(0.72, 0.92, zoomFactor)
+      brightFieldRef.current.size = mix(2.2, 2.8, zoomFactor)
+    }
+
+    if (stellarFieldRef.current) {
+      stellarFieldRef.current.opacity = mix(0.18, 0.28, zoomFactor)
+      stellarFieldRef.current.size = mix(0.8, 1.18, zoomFactor)
+    }
+
+    if (milkyWayFieldRef.current) {
+      milkyWayFieldRef.current.opacity = mix(0.16, 0.34, zoomFactor)
+      milkyWayFieldRef.current.size = mix(0.86, 1.28, zoomFactor)
+    }
+
+    if (deepFieldRef.current) {
+      deepFieldRef.current.opacity = mix(0.02, 0.08, zoomFactor)
+      deepFieldRef.current.size = mix(0.42, 0.66, zoomFactor)
+    }
+
+    if (milkyWayBandRef.current) {
+      milkyWayBandRef.current.rotation.z = Math.sin(clock.elapsedTime * 0.012) * 0.03
+      milkyWayBandRef.current.children.forEach((child, index) => {
+        const sprite = child as THREE.Sprite
+        const material = sprite.material as THREE.SpriteMaterial
+        material.opacity = mix(index === 0 ? 0.05 : 0.025, index === 0 ? 0.12 : 0.06, zoomFactor)
+      })
+    }
+  })
 
   return (
     <group>
-      {clouds.map((cloud, index) => (
-        <sprite key={`${cloud.color}-${index}`} position={cloud.position} scale={cloud.scale}>
-          <spriteMaterial
-            map={texture}
-            color={cloud.color}
-            opacity={cloud.opacity}
-            transparent
-            depthWrite={false}
-            blending={THREE.AdditiveBlending}
-          />
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[brightField.positions, 3]} />
+          <bufferAttribute attach="attributes-color" args={[brightField.colors, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          ref={brightFieldRef}
+          size={2.2}
+          sizeAttenuation
+          transparent
+          opacity={0.72}
+          depthWrite={false}
+          vertexColors
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[stellarField.positions, 3]} />
+          <bufferAttribute attach="attributes-color" args={[stellarField.colors, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          ref={stellarFieldRef}
+          size={0.8}
+          sizeAttenuation
+          transparent
+          opacity={0.18}
+          depthWrite={false}
+          vertexColors
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[milkyWayStars.positions, 3]} />
+          <bufferAttribute attach="attributes-color" args={[milkyWayStars.colors, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          ref={milkyWayFieldRef}
+          size={0.86}
+          sizeAttenuation
+          transparent
+          opacity={0.16}
+          depthWrite={false}
+          vertexColors
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[deepField.positions, 3]} />
+          <bufferAttribute attach="attributes-color" args={[deepField.colors, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          ref={deepFieldRef}
+          size={0.42}
+          sizeAttenuation
+          transparent
+          opacity={0.02}
+          depthWrite={false}
+          vertexColors
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <group ref={milkyWayBandRef} rotation={[-0.88, 0.42, 0.28]}>
+        <sprite position={[0, 0, -7600]} scale={[12000, 2200, 1]}>
+          <spriteMaterial map={milkyWayTexture} color="#f0e4c9" transparent opacity={0.05} depthWrite={false} blending={THREE.AdditiveBlending} />
         </sprite>
-      ))}
+        <sprite position={[360, 120, -9200]} scale={[14000, 2400, 1]}>
+          <spriteMaterial map={milkyWayTexture} color="#a9c0ff" transparent opacity={0.025} depthWrite={false} blending={THREE.AdditiveBlending} />
+        </sprite>
+      </group>
     </group>
-  )
-}
-
-function AtmosphereDust() {
-  const { positions, colors } = useMemo(() => {
-    const count = 1200
-    const positions = new Float32Array(count * 3)
-    const colors = new Float32Array(count * 3)
-
-    for (let index = 0; index < count; index += 1) {
-      const angle = Math.random() * Math.PI * 2
-      const radius = 600 + Math.random() * 3400
-      const height = (Math.random() - 0.5) * 1400
-      positions[index * 3] = Math.cos(angle) * radius
-      positions[index * 3 + 1] = height
-      positions[index * 3 + 2] = Math.sin(angle) * radius * mix(0.52, 0.96, Math.random())
-
-      const tint = Math.random()
-      colors[index * 3] = mix(0.84, 0.98, tint)
-      colors[index * 3 + 1] = mix(0.9, 1, Math.random())
-      colors[index * 3 + 2] = mix(0.9, 1, 1 - tint * 0.34)
-    }
-
-    return { positions, colors }
-  }, [])
-
-  return (
-    <points>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-        <bufferAttribute attach="attributes-color" args={[colors, 3]} />
-      </bufferGeometry>
-      <pointsMaterial
-        size={1.5}
-        sizeAttenuation
-        transparent
-        opacity={0.22}
-        depthWrite={false}
-        vertexColors
-        blending={THREE.AdditiveBlending}
-      />
-    </points>
   )
 }
 
@@ -931,6 +1392,7 @@ function RegionLabel({
       <div className={`cosmic-region-label ${active ? 'cosmic-region-label-active' : ''}`}>
         <strong>{resolveRegionLabel(model, language)}</strong>
         <span>{formatHeroCountLabel(model.count, language)}</span>
+        <span className="cosmic-region-label-feedback">{formatRegionFeedback(model, language)}</span>
       </div>
     </Html>
   )
@@ -1003,13 +1465,24 @@ function CameraNavigator({
 
   useEffect(() => {
     if (!focusTarget) {
+      desiredTargetRef.current = null
+      desiredCameraRef.current = null
       return
     }
+
+    const controls = controlsRef.current
     const desiredTarget = new THREE.Vector3(...focusTarget.center)
-    const desiredCamera = desiredTarget.clone().add(new THREE.Vector3(0, Math.max(220, focusTarget.distance * 0.18), focusTarget.distance))
+    const anchorTarget = controls?.target?.clone() ?? new THREE.Vector3()
+    const offset = camera.position.clone().sub(anchorTarget)
+    if (offset.lengthSq() < 0.001) {
+      offset.set(0, 0.22, 1)
+    }
+    offset.normalize().multiplyScalar(focusTarget.distance)
+    offset.y += Math.max(160, focusTarget.distance * 0.16)
+    const desiredCamera = desiredTarget.clone().add(offset)
     desiredTargetRef.current = desiredTarget
     desiredCameraRef.current = desiredCamera
-  }, [focusTarget])
+  }, [camera, controlsRef, focusTarget])
 
   useFrame((_, delta) => {
     const controls = controlsRef.current
@@ -1061,6 +1534,7 @@ function RegionNavigation({
           >
             <strong>{resolveRegionLabel(region, language)}</strong>
             <span>{formatHeroCountLabel(region.count, language)}</span>
+            <span className="cosmic-region-chip-feedback">{formatRegionFeedback(region, language)}</span>
           </button>
         ))}
       </div>
@@ -1074,21 +1548,20 @@ function BrightGalaxyStage({
   flows,
   language,
   selectedNodeId,
+  autoFocusTarget,
   onSelectNode,
 }: ConstellationViewProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [focusedRegionId, setFocusedRegionId] = useState<string | null>(null)
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null)
+  const handledAutoFocusTokenRef = useRef<number | null>(null)
   const scene = useMemo(() => buildSceneModel(heroes, tasks, flows, selectedNodeId), [heroes, tasks, flows, selectedNodeId])
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const cameraRef = useRef<THREE.Camera | null>(null)
   const controlsRef = useRef<ControlsHandle | null>(null)
   const gestureRef = useRef<{ start: UiAnchor | null; dragged: boolean }>({ start: null, dragged: false })
 
-  const nodeTexture = useMemo(() => buildIndentedNodeTexture(), [])
-  const nodeGlowTexture = useMemo(() => buildGlowTexture('rgba(117, 238, 242, 0.64)', 'rgba(117, 238, 242, 0)', 1.18), [])
-  const coreTexture = useMemo(() => buildGlowTexture('rgba(255, 255, 255, 1)', 'rgba(255, 255, 255, 0)', 1.3), [])
-  const cloudTexture = useMemo(() => buildGlowTexture('rgba(255, 255, 255, 0.94)', 'rgba(255, 255, 255, 0)', 1.72), [])
+  const nodeGlowTexture = useMemo(() => buildGlowTexture('rgba(142, 207, 255, 0.38)', 'rgba(142, 207, 255, 0)', 1.18), [])
   const pulseTexture = useMemo(() => buildGlowTexture('rgba(64, 224, 208, 0.92)', 'rgba(64, 224, 208, 0)', 1.22), [])
   const navigationRegions = useMemo(() => scene.constellations.filter((region) => region.navVisible), [scene.constellations])
   const activeRegionId =
@@ -1098,6 +1571,35 @@ function BrightGalaxyStage({
           tasks.some((task) => task.taskId === selectedNodeId && task.selectedHeroIds.some((heroId) => region.heroIds.includes(heroId)))
         : false,
     )?.id ?? focusedRegionId
+
+  useEffect(() => {
+    if (!autoFocusTarget || handledAutoFocusTokenRef.current === autoFocusTarget.token) {
+      return
+    }
+
+    const selectedTaskModel = scene.tasks.find((task) => task.task.taskId === autoFocusTarget.nodeId)
+    if (selectedTaskModel) {
+      setFocusedRegionId(null)
+      setFocusTarget({
+        id: selectedTaskModel.task.taskId,
+        center: selectedTaskModel.position,
+        distance: clamp(500 + selectedTaskModel.size * 5.5, 500, 840),
+      })
+      handledAutoFocusTokenRef.current = autoFocusTarget.token
+      return
+    }
+
+    const selectedHeroModel = scene.heroes.find((hero) => hero.hero.heroId === autoFocusTarget.nodeId)
+    if (selectedHeroModel) {
+      setFocusedRegionId(null)
+      setFocusTarget({
+        id: selectedHeroModel.hero.heroId,
+        center: selectedHeroModel.position,
+        distance: clamp(360 + selectedHeroModel.size * 8.5, 360, 720),
+      })
+      handledAutoFocusTokenRef.current = autoFocusTarget.token
+    }
+  }, [autoFocusTarget, scene.heroes, scene.tasks])
 
   const handleFocusRegion = (region: SceneConstellationModel) => {
     setFocusedRegionId(region.id)
@@ -1110,19 +1612,9 @@ function BrightGalaxyStage({
 
   return (
     <section className="celestial-stage" aria-label={t(language, 'galaxy_stage')}>
-      <div className="celestial-stage-aura celestial-stage-aura-cyan" />
-      <div className="celestial-stage-aura celestial-stage-aura-lavender" />
-
-      <RegionNavigation
-        regions={navigationRegions}
-        language={language}
-        activeRegionId={activeRegionId}
-        onFocusRegion={handleFocusRegion}
-      />
-
       <Canvas
         dpr={[1, 2]}
-        camera={{ position: [0, 180, 1120], fov: 42, near: 0.1, far: 10000 }}
+        camera={{ position: [0, 180, 1180], fov: 42, near: 0.1, far: 18000 }}
         gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
         eventPrefix="client"
         onCreated={(state) => {
@@ -1130,6 +1622,7 @@ function BrightGalaxyStage({
           cameraRef.current = state.camera
         }}
         onPointerDown={(event) => {
+          setFocusTarget(null)
           gestureRef.current = {
             start: extractAnchorFromMiss(event),
             dragged: false,
@@ -1171,65 +1664,31 @@ function BrightGalaxyStage({
           onSelectNode(null, null)
         }}
       >
-        <color attach="background" args={['#f9fbfc']} />
-        <fogExp2 attach="fog" args={['#f6fafb', 0.00018]} />
-        <ambientLight intensity={1.55} />
-        <directionalLight position={[-480, 520, 360]} intensity={1.1} color="#ffffff" />
-        <pointLight position={[640, 260, 240]} intensity={1.28} color="#e0ffff" distance={2600} />
-        <pointLight position={[-520, 180, -220]} intensity={0.9} color="#e6e6fa" distance={2200} />
+        <color attach="background" args={['#010205']} />
+        <fogExp2 attach="fog" args={['#02040a', 0.00009]} />
+        <ambientLight intensity={0.22} />
+        <directionalLight position={[-520, 420, 720]} intensity={1.15} color="#d9e7ff" />
+        <pointLight position={[940, 180, 1160]} intensity={0.74} color="#7fb3ff" distance={5400} />
+        <pointLight position={[-760, -160, -760]} intensity={0.38} color="#5fe2d8" distance={4800} />
 
-        <NebulaClouds texture={cloudTexture} />
-        <AtmosphereDust />
-
-        {scene.constellations.map((constellation) => (
-          <React.Fragment key={constellation.id}>
-            <ConstellationLines model={constellation} />
-            <RegionLabel model={constellation} language={language} active={activeRegionId === constellation.id} />
-          </React.Fragment>
-        ))}
-
-        {scene.flows.map((flow) => (
-          <MemoFlowArc key={flow.flow.id} model={flow} pulseTexture={pulseTexture} />
-        ))}
+        <DeepSpaceBackdrop />
 
         {scene.tasks.map((task) => (
-          <MemoBrightNode
+          <MemoDestinyFluxNode
             key={task.task.taskId}
             nodeId={task.task.taskId}
             position={task.position}
             size={task.size}
             accentColor={task.statusColor}
+            active={task.active}
             dimmed={task.dimmed}
             selected={task.selected}
             hovered={hoveredId === task.task.taskId}
-            active={!task.dimmed}
             title={task.task.title.length > 34 ? `${task.task.title.slice(0, 34)}…` : task.task.title}
             subtitle={`${formatRoundLabel(task.task.verdictRound + 1, language)} · ${t(language, 'destiny_core')}`}
             labelClassName="cosmic-label-task"
-            nodeTexture={nodeTexture}
             glowTexture={nodeGlowTexture}
-            coreTexture={coreTexture}
-            onSelect={(nodeId, event) => onSelectNode(nodeId, extractAnchor(event))}
-            onHover={setHoveredId}
-          />
-        ))}
-
-        {scene.heroes.map((hero) => (
-          <MemoBrightNode
-            key={hero.hero.heroId}
-            nodeId={hero.hero.heroId}
-            position={hero.position}
-            size={hero.size}
-            accentColor={hero.statusColor}
-            dimmed={hero.dimmed}
-            selected={hero.selected}
-            hovered={hoveredId === hero.hero.heroId}
-            active={hero.active}
-            title={resolveHeroDisplayName(hero.hero, language)}
-            subtitle={`${formatStatusLabel(hero.hero.status, language)}${hero.skillIds.length > 0 ? ` · ${formatSkillCountLabel(hero.skillIds.length, language)}` : ''}`}
-            nodeTexture={nodeTexture}
-            glowTexture={nodeGlowTexture}
-            coreTexture={coreTexture}
+            pulseTexture={pulseTexture}
             onSelect={(nodeId, event) => onSelectNode(nodeId, extractAnchor(event))}
             onHover={setHoveredId}
           />
@@ -1239,16 +1698,17 @@ function BrightGalaxyStage({
           ref={(instance) => {
             controlsRef.current = instance as unknown as ControlsHandle | null
           }}
+          onStart={() => setFocusTarget(null)}
           enableZoom
           enablePan
           enableRotate={false}
           enableDamping
           screenSpacePanning
-          dampingFactor={0.08}
-          panSpeed={1.08}
-          zoomSpeed={0.94}
+          dampingFactor={0.09}
+          panSpeed={1.12}
+          zoomSpeed={0.88}
           minDistance={320}
-          maxDistance={3600}
+          maxDistance={7800}
           minPolarAngle={0.3}
           maxPolarAngle={Math.PI - 0.3}
           mouseButtons={{

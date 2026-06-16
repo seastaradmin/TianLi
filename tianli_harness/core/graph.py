@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from typing import Any, Dict, List, Literal, Optional
 
 from langgraph.graph import END, StateGraph
@@ -18,6 +20,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from tianli_harness.core.interceptor import TianJieInterceptor
 from tianli_harness.core.optimizer import TianYanOptimizer
 from tianli_harness.core.state import ActionTrace, HarnessConfig, TaskEnvelope, TianLiState
+from tianli_harness.core.heroes import get_predefined_hero, PREDEFINED_HEROES
+from tianli_harness.core.metrics import get_metrics_collector
+from tianli_harness.core.audit_rules import AuditRuleEngine, AuditRuleTemplate
+from tianli_harness.core.db_connector import get_feedback_database
 from tianli_harness.dna.fetcher import DNAFetcher
 from tianli_harness.skills.claw_proxy import OpenClawSkillManager
 
@@ -175,13 +181,14 @@ class HarnessGraphBuilder:
         tool_id = tool_call.get("id", f"tool-{len(traces) + 1}")
 
         result = await self.skill_manager.execute_tool(tool_name, parameters)
+        serialized_result = json.dumps(result, ensure_ascii=False) if isinstance(result, (dict, list)) else str(result)
 
         trace = ActionTrace(
             step=len(traces) + 1,
             hero_id=state["config"].hero_id,
             tool_name=tool_name,
             parameters=parameters,
-            observation=str(result),
+            observation=serialized_result,
             is_valid=True,
             audit_score=pending_audit.get("score"),
             audit_reason=pending_audit.get("reason", ""),
@@ -197,7 +204,7 @@ class HarnessGraphBuilder:
                         {
                             "type": "tool_result",
                             "tool_use_id": tool_id,
-                            "content": str(result),
+                            "content": serialized_result,
                         }
                     ],
                 }
@@ -243,7 +250,7 @@ class HarnessGraphBuilder:
         if hinted_path and chosen_tool in {"Read", "Write", "Edit"}:
             tool_input["file_path"] = hinted_path
         if chosen_tool == "Write":
-            tool_input["content"] = f"Task output for: {content}"
+            tool_input["content"] = self._draft_write_content(content)
         if chosen_tool == "Bash":
             tool_input["command"] = "pwd"
 
@@ -256,6 +263,69 @@ class HarnessGraphBuilder:
     def _extract_path_hint(self, content: str) -> Optional[str]:
         match = re.search(r"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)", content)
         return match.group(1) if match else None
+
+    def _draft_write_content(self, content: str) -> str:
+        cleaned = " ".join(content.split())
+        lowered = cleaned.lower()
+
+        if any(keyword in cleaned for keyword in ("小说", "故事", "短篇")) or any(
+            keyword in lowered for keyword in ("novel", "story", "fiction")
+        ):
+            title = "《群星回响》"
+            return (
+                f"{title}\n\n"
+                "雨夜的港口像一块缓慢呼吸的黑曜石，潮声在脚边一阵阵涌来。林澈把旧式星图折好塞进风衣口袋，"
+                "抬头望向穹顶列车穿过云层留下的银线。三年前，父亲驾驶的观测船失踪在外环航道，只留下一句含混的讯号："
+                "“不要相信最亮的那颗星。”\n\n"
+                "今晚，那句讯号再次从废弃灯塔的终端里响起。灯塔本该断电多年，屏幕却像被谁从深海里唤醒一样亮了起来，"
+                "一行陌生坐标在雨幕中不断闪烁。坐标指向城市上空那片无人敢靠近的静默轨道，那里漂浮着一座被封锁的旧观测站，"
+                "据说它保存着第一次深空航行留下的全部原始记录。\n\n"
+                "林澈知道自己没有退路。母亲病床边的账单、父亲留下的空白航海日志、还有每个雨夜反复出现的同一个梦，"
+                "都把他推向同一个方向。他骑上检修艇，借着港区灯火的缝隙升空。城市在身后迅速缩成一片潮湿的金色，"
+                "而头顶的星空则越来越冷，像一扇终于被人推开的门。\n\n"
+                "当检修艇贴近旧观测站时，外壁的识别灯竟逐一点亮，仿佛它从来都在等待这个迟到了三年的访客。"
+                "舱门开启的一瞬间，一股带着灰尘与金属气味的风迎面扑来。主控台中央，悬浮着一枚缓慢旋转的光核，"
+                "那正是父亲日志里多次提到却从未解释过的“第九导航星”。\n\n"
+                "林澈伸手碰触光核，整个观测站随之震颤，尘封的投影星图在四周铺开。无数航线从城市、海洋、轨道一直延伸到更深的宇宙，"
+                "而其中最明亮的一条，竟然正通向他脚下这座小小的海港。原来父亲从未消失，他只是把回家的路藏进了群星。"
+            )
+
+        if any(keyword in cleaned for keyword in ("图片", "海报", "插画")) or any(
+            keyword in lowered for keyword in ("image", "poster", "illustration")
+        ):
+            return (
+                "# 图像交付说明\n\n"
+                "当前运行链路未挂接真实图像生成器，因此本轮交付产出的是可直接用于绘图模型的提示词与构图说明。\n\n"
+                "## 正向提示词\n"
+                f"{cleaned}，cinematic lighting，rich texture，high detail，volumetric atmosphere，dramatic composition\n\n"
+                "## 负向提示词\n"
+                "blurry, low detail, distorted anatomy, duplicate elements, watermark, text artifacts\n\n"
+                "## 构图说明\n"
+                "主体置于画面中央偏下，保留大面积黑色深空作为呼吸区，前景提供尺度参照，背景用弱银河带提升纵深。"
+            )
+
+        if any(keyword in cleaned for keyword in ("文档", "报告", "分析", "方案", "总结")) or any(
+            keyword in lowered for keyword in ("report", "analysis", "plan", "summary", "document")
+        ):
+            return (
+                f"# {cleaned}\n\n"
+                "## 背景\n"
+                "本轮目标是把任务从抽象意图转成可执行交付，并清楚呈现过程、风险与下一步动作。\n\n"
+                "## 关键发现\n"
+                "1. 当前系统更擅长给出流程和审计信息，而不擅长直接把最终交付物抬到前台。\n"
+                "2. 交付摘要混入了过多 skill 噪音，导致用户难以快速判断结果质量。\n"
+                "3. 应优先提供结果预览、再提供过程轨迹、最后提供审计细节。\n\n"
+                "## 建议动作\n"
+                "1. 将最终交付物单独建模为 artifact。\n"
+                "2. 将流程拆成可读的步骤时间线。\n"
+                "3. 将 skill 贡献改为附加证据，而不是正文主体。"
+            )
+
+        return (
+            f"# 交付草稿\n\n"
+            f"任务：{cleaned}\n\n"
+            "本轮已生成一份初稿内容。下一步应根据任务类型继续细化正文、结构和可直接消费的最终结果。"
+        )
 
     def _extract_tool_result(self, blocks: List[dict]) -> str:
         for block in blocks:
@@ -329,15 +399,46 @@ def build_harness_graph(config: HarnessConfig, anthropic, skill_manager: OpenCla
 
 
 class HarnessEngine:
-    """Main entry point for TianLi Harness engine."""
+    """Main entry point for TianLi Harness engine with metrics and predefined heroes."""
 
-    def __init__(self, config: HarnessConfig, anthropic, openclaw_executor):
+    def __init__(self, config: HarnessConfig, anthropic, openclaw_executor, session_id: Optional[str] = None):
         self.config = config
         self.anthropic = anthropic
         self.skill_manager = OpenClawSkillManager(openclaw_executor)
         self.app = build_harness_graph(config, anthropic, self.skill_manager)
+        
+        # Initialize metrics collector
+        self.metrics = get_metrics_collector()
+        self.session_id = session_id or f"session-{int(time.time())}"
+        self.metrics.start_session(self.session_id)
+        
+        # Initialize audit rule engine
+        self.audit_rule_engine = AuditRuleEngine()
+        
+        # Load predefined hero if using predefined mode
+        self.hero_prompt = self._load_hero_prompt(config.hero_id)
+
+    def _load_hero_prompt(self, hero_id: str) -> str:
+        """Load hero prompt from predefined heroes or local config."""
+        # Check local prompts first
+        if hero_id in self.config.local_hero_prompts:
+            return self.config.local_hero_prompts[hero_id]
+        
+        # Check predefined heroes
+        predefined = get_predefined_hero(hero_id)
+        if predefined:
+            return predefined.get("system_prompt", "")
+        
+        # Fallback to default
+        return f"You are hero '{hero_id}'. Stay aligned with the task and explain your reasoning briefly."
 
     async def run(self, thread_id: str, user_input: str):
+        """Run the harness with metrics tracking."""
+        import time
+        
+        self.metrics.record_request_start()
+        start_time = time.time()
+        
         initial_state: TianLiState = {
             "config": self.config,
             "task": TaskEnvelope(
@@ -346,7 +447,7 @@ class HarnessEngine:
                 max_fanout=self.config.max_fanout,
                 dispatch_mode=self.config.dispatch_mode,
             ),
-            "messages": [],
+            "messages": [{"role": "system", "content": self.hero_prompt}],
             "traces": [],
             "task_flow": [],
             "current_status": "starting",
@@ -355,4 +456,71 @@ class HarnessEngine:
             "pending_audit": None,
             "dispatch_decision": None,
         }
-        return await self.app.ainvoke(initial_state, config={"configurable": {"thread_id": thread_id}})
+        
+        dispatch_id = None
+        try:
+            result = await self.app.ainvoke(initial_state, config={"configurable": {"thread_id": thread_id}})
+            
+            # Record metrics
+            latency_ms = int((time.time() - start_time) * 1000)
+            if result.get("current_status") == "completed":
+                self.metrics.record_completion()
+            elif result.get("current_status") == "early_exit":
+                self.metrics.record_early_exit("Audit failure")
+                if result.get("evolution_patch"):
+                    self.metrics.record_evolution_patch()
+            
+            # Log to database
+            try:
+                db = get_feedback_database()
+                
+                # Get dispatch_id from state if available
+                dispatch_decision = result.get("dispatch_decision")
+                if dispatch_decision and hasattr(dispatch_decision, 'dispatch_id'):
+                    dispatch_id = dispatch_decision.dispatch_id
+                
+                # Log task result
+                db.log_task_result(
+                    task_id=thread_id,
+                    dispatch_id=dispatch_id,
+                    status=result.get("current_status", "unknown"),
+                    current_status=result.get("current_status"),
+                    execution_time_ms=latency_ms,
+                    l1_passed=result.get("l1_passed"),
+                    l2_passed=result.get("l2_passed"),
+                    l2_score=result.get("l2_score"),
+                    violations=result.get("violations"),
+                    evolution_patch=result.get("evolution_patch")
+                )
+                
+                # Update hero performance
+                if self.config.hero_id:
+                    db.update_hero_performance(
+                        hero_id=self.config.hero_id,
+                        success=result.get("current_status") == "completed",
+                        execution_time_ms=latency_ms,
+                        l2_score=result.get("l2_score")
+                    )
+                
+            except Exception as e:
+                logger.warning(f"Failed to log to database: {e}")
+            
+            return result
+            
+        except Exception as e:
+            self.metrics.record_early_exit(f"Error: {str(e)}")
+            
+            # Log error to database
+            try:
+                db = get_feedback_database()
+                db.log_task_result(
+                    task_id=thread_id,
+                    dispatch_id=dispatch_id,
+                    status="failed",
+                    current_status="error",
+                    execution_time_ms=int((time.time() - start_time) * 1000)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log error to database: {e}")
+            
+            raise

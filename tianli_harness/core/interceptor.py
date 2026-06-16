@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from tianli_harness.core.state import ActionTrace, HarnessConfig
+from tianli_harness.core.audit_rules import AuditRuleEngine
+from tianli_harness.core.metrics import get_metrics_collector
 
 
 class AuditResult(BaseModel):
@@ -22,11 +24,20 @@ class AuditResult(BaseModel):
 
 
 class TianJieInterceptor:
-    """Layered Constitution interceptor - TianJie (天劫) auditing."""
+    """Layered Constitution interceptor - TianJie (天劫) auditing with rule engine."""
 
     def __init__(self, anthropic, config: HarnessConfig):
         self.anthropic = anthropic
         self.config = config
+        self.audit_rule_engine = AuditRuleEngine()
+        self.metrics = get_metrics_collector()
+        
+        # Add custom forbidden words from config
+        if config.forbidden_words:
+            from tianli_harness.core.audit_rules import AuditRule, AuditRuleTemplate
+            template = AuditRuleTemplate()
+            template.FORBIDDEN_CUSTOM.metadata["custom_words"] = config.forbidden_words
+            self.audit_rule_engine.add_rule(template.FORBIDDEN_CUSTOM)
 
     def check_l1(
         self,
@@ -34,39 +45,40 @@ class TianJieInterceptor:
         parameters: Dict[str, object],
         traces: List[ActionTrace],
     ) -> AuditResult:
-        """Run L1 coarse filtering - synchronous, no LLM call."""
+        """Run L1 coarse filtering - synchronous, no LLM call with rule engine."""
+        
+        # Convert ActionTrace to simple dict for rule engine
+        simple_traces = []
+        for trace in traces:
+            simple_traces.append({
+                "tool_name": trace.tool_name,
+                "parameters": trace.parameters,
+                "observation": trace.observation,
+            })
 
-        recent_traces = traces[-self.config.repetition_threshold :]
-        if len(recent_traces) >= self.config.repetition_threshold:
-            recent_tools = [trace.tool_name for trace in recent_traces]
-            if all(name == tool_name for name in recent_tools):
-                current_str = str(parameters)
-                previous_params = str(recent_traces[-1].parameters or recent_traces[-1].observation or {})
-                similarity = difflib.SequenceMatcher(None, current_str, previous_params).ratio()
-                if similarity > 0.9:
-                    return AuditResult(
-                        should_continue=False,
-                        reason=f"L1: Repetition detected - {similarity:.2f} similar parameters for {tool_name}",
-                        stage="L1",
-                    )
-
-        if self.config.forbidden_words:
-            content = f"{tool_name} {parameters}".lower()
-            for word in self.config.forbidden_words:
-                if word.lower() in content:
-                    return AuditResult(
-                        should_continue=False,
-                        reason=f"L1: Forbidden word '{word}' detected",
-                        stage="L1",
-                    )
-
-        if not parameters or all(value is None or value == "" for value in parameters.values()):
+        # Use rule engine for comprehensive L1 checks
+        violations = self.audit_rule_engine.check(
+            tool_name=tool_name,
+            parameters=parameters,
+            traces=type('obj', (object,), simple_traces) if simple_traces else [],
+        )
+        
+        if violations:
+            # Record metrics for each violation
+            for violation in violations:
+                self.metrics.record_l1_result(passed=False)
+            
+            # Return the most severe violation
+            most_severe = max(violations, key=lambda v: {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(v.get("severity", "low"), 0))
             return AuditResult(
                 should_continue=False,
-                reason="L1: Empty parameters detected",
+                reason=f"L1: {most_severe['name']} - {most_severe['reason']}",
                 stage="L1",
             )
 
+        # Record L1 pass
+        self.metrics.record_l1_result(passed=True)
+        
         return AuditResult(
             should_continue=True,
             reason="L1: All checks passed",
@@ -133,6 +145,11 @@ class TianJieInterceptor:
 
     def _result_from_score(self, score: float) -> AuditResult:
         score = max(0.0, min(1.0, score))
+        
+        # Record L2 metrics
+        passed = score >= self.config.drift_threshold
+        self.metrics.record_l2_result(passed=passed, score=score)
+        
         if score < self.config.drift_threshold:
             return AuditResult(
                 should_continue=False,
